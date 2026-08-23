@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>个人知识库 / 文献管理平台</title>
+<link rel="stylesheet" href="assets/style.css?v=20260822a">
+<script src="https://unpkg.com/minisearch@6.3.0/dist/umd/index.min.js"></script>
+</head>
+<body>
+<header>
+  <span class="logo">个人知识库</span>
+  <span class="sub">论文管理 · 知识库 · 分类 · 统计 · 导出 · AI 问答 · Skill管理</span>
+  <span id="beacon" class="beacon off">只读模式</span>
+  <div class="tabs">
+    <button data-v="library" class="on" onclick="switchTab('library')">文献库</button>
+    <button data-v="knowledge" onclick="switchTab('knowledge')">知识库</button>
+    <button data-v="timeline" onclick="switchTab('timeline')">时间线</button>
+    <button data-v="tags" onclick="switchTab('tags')">标签</button>
+    <button data-v="manage" onclick="switchTab('manage')">分类管理</button>
+    <button data-v="stats" onclick="switchTab('stats')">统计</button>
+    <button data-v="export" onclick="switchTab('export')">导出</button>
+    <button data-v="ai" onclick="switchTab('ai')">AI 问答</button>
+    <button data-v="skills" onclick="switchTab('skills')">Skill管理</button>
+  </div>
+</header>
+<div class="layout">
+  <aside id="sidebar"></aside>
+  <div class="gutter" id="gutterSide" title="拖动调节侧栏宽度"></div>
+  <section id="main"></section>
+  <div class="gutter prev" id="gutterPrev" title="拖动调节预览宽度"></div>
+  <aside id="preview"></aside>
+</div>
+<script src="assets/marked.min.js"></script>
+<script src="assets/app.js?v=20260822a"></script>
+</body>
+</html>

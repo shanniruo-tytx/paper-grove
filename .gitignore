@@ -1,0 +1,22 @@
+# ===== 个人数据（不入库）=====
+content/papers/*
+content/notes/*
+!content/papers/.gitkeep
+!content/notes/.gitkeep
+_papers_archive/
+dist/
+categories.json
+content_backup_20260811n/
+PhD文献.rdf
+_batches/
+_runs/
+server.log
+.workbuddy/
+__pycache__/
+*.pyc
+*.pyo
+*.log
+
+# ===== 编辑器 / 系统 =====
+.DS_Store
+Thumbs.db

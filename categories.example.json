@@ -1,0 +1,12 @@
+[
+  {
+    "id": "uncat",
+    "name": "待归类",
+    "parent": null
+  },
+  {
+    "id": "example_cat",
+    "name": "示例分类（可删除）",
+    "parent": null
+  }
+]
