@@ -96,6 +96,9 @@ table.lib .tw.leaf{visibility:hidden}
 .factive .chip.on{background:var(--brand-soft);border:1px solid #b9cdf6;color:#2a5bd7;cursor:pointer;padding:4px 10px}
 .factive .chip.on:hover{filter:brightness(.97)}
 .cs{color:#475569;font-size:13px;margin-top:7px;line-height:1.65;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.cl{margin-top:5px;font-size:13px;line-height:1.5;color:#1f2937}
+.cl-l{display:inline-block;font-size:11px;font-weight:700;color:var(--muted);background:var(--chip);border-radius:5px;padding:1px 6px;margin-right:6px;vertical-align:middle}
+td .cl{margin-top:3px;font-size:12px;color:var(--sub);line-height:1.45}
 .badge{display:inline-block;font-size:11px;padding:1px 7px;border-radius:6px;background:#f1f5f9;color:#475569;margin-left:6px;vertical-align:middle}
 .badge.note{background:#fef3c7;color:#92400e}
 .badge.analysis{background:#ede9fe;color:#6d28d9}
@@ -109,10 +112,15 @@ table.lib th,table.lib td{padding:11px 12px;text-align:left;border-bottom:1px so
 table.lib td{overflow:hidden;text-overflow:ellipsis}
 table.lib th{background:#f8fafc;font-weight:700;color:#475569;cursor:pointer;user-select:none;white-space:nowrap;position:relative;overflow:visible}
 table.lib th .ar{color:var(--muted);font-size:10px;margin-left:3px}
-table.lib th .rs{position:absolute;right:0;top:0;bottom:0;width:11px;cursor:col-resize;z-index:2;user-select:none;touch-action:none}
-table.lib th .rs::after{content:"";position:absolute;top:6px;bottom:6px;right:5px;width:2px;background:transparent;transition:.15s}
-table.lib th .rs:hover::after, table.lib th .rs.drag::after{background:var(--brand);width:3px;right:4px}
+table.lib th .rs{position:absolute;right:0;top:0;bottom:0;width:12px;cursor:col-resize;z-index:3;user-select:none;touch-action:none;border-radius:3px;transition:background .12s}
+table.lib th .rs::after{content:"";position:absolute;top:4px;bottom:4px;right:5px;width:2px;background:var(--border);border-radius:2px;transition:.12s}
 table.lib th .rs:hover{background:var(--brand-soft)}
+table.lib th .rs:hover::after{background:var(--brand);width:3px;right:4px;box-shadow:0 0 6px var(--brand)}
+table.lib th .rs.drag{background:var(--brand-soft)}
+table.lib th .rs.drag::after{background:var(--brand);width:3px;right:4px;box-shadow:0 0 8px var(--brand)}
+/* 拖拽时的纵向引导线：贯穿整张表、跟随光标 */
+#col-guide{position:fixed;width:2px;background:var(--brand);box-shadow:0 0 8px var(--brand);z-index:9999;pointer-events:none;display:none}
+body.col-resizing, body.col-resizing *{cursor:col-resize !important;user-select:none !important}
 table.lib tr:last-child td{border-bottom:none}
 table.lib tr:hover td{background:#fafbff}
 table.lib tr.sel td{background:var(--brand-soft)}
@@ -151,6 +159,9 @@ table.lib td.ops{white-space:nowrap;overflow:visible}
 .att-item{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:7px;cursor:pointer;font-size:13px;background:#fff;border:1px solid var(--border)}
 .att-item:hover{background:#f5f8ff;border-color:var(--brand-soft)}
 .att-t{font-weight:600;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.att-btns{margin-left:auto;display:flex;align-items:center;gap:2px;opacity:.55;transition:.12s}
+.att-item:hover .att-btns{opacity:1}
+.att-btns .row-btn{width:22px;height:22px;margin-right:0;font-size:12px}
 /* 结构化编辑弹窗（前端直接编辑，非原始 markdown） */
 .modal-body{display:flex;flex-direction:column;gap:12px;padding:16px;overflow:auto;flex:1}
 .efld{display:flex;flex-direction:column;gap:4px;font-size:13px}
@@ -218,6 +229,9 @@ table.lib td.ops{white-space:nowrap;overflow:visible}
 #preview .pv-summary{margin:12px 16px 0;background:#f8fafc;border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:8px;padding:10px 13px}
 #preview .pv-sub{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;margin-bottom:5px}
 #preview .pv-summary-body{font-size:13.5px;line-height:1.7;color:#334155;white-space:pre-wrap;word-break:break-word}
+/* 一句话概括：紧跟标题的高亮区块 */
+#preview .pv-oneliner{margin:10px 16px 0;padding:10px 13px;background:#eef4ff;border:1px solid #dbeafe;border-left:3px solid var(--brand);border-radius:8px;font-size:14px;line-height:1.65;color:#1e3a8a;white-space:pre-wrap;word-break:break-word}
+#preview .pv-ol-l{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;color:var(--brand);text-transform:uppercase;margin-right:8px;vertical-align:middle}
 #preview .pv-body-label{margin:14px 16px 0;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}
 #preview .pv-body{flex:1;overflow:auto;padding:18px 22px;line-height:1.78}
 #preview .pv-body h1,#preview .pv-body h2{border-bottom:1px solid #eee;padding-bottom:6px;margin-top:22px}

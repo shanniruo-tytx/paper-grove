@@ -33,6 +33,8 @@ def slug_to_path(slug):
         p = os.path.join(CONTENT, "papers", slug[len("papers_"):] + ".md")
     elif slug.startswith("notes_"):
         p = os.path.join(CONTENT, "notes", slug[len("notes_"):] + ".md")
+    elif slug.startswith("resources_"):
+        p = os.path.join(CONTENT, "resources", slug[len("resources_"):] + ".md")
     else:
         return None
     p = os.path.abspath(p)
@@ -46,6 +48,8 @@ def slug_to_file(slug):
         return os.path.join(CONTENT, "papers", slug[len("papers_"):] + ".md")
     if slug.startswith("notes_"):
         return os.path.join(CONTENT, "notes", slug[len("notes_"):] + ".md")
+    if slug.startswith("resources_"):
+        return os.path.join(CONTENT, "resources", slug[len("resources_"):] + ".md")
     return None
 
 def _quote_val(v):
@@ -302,42 +306,80 @@ class H(BaseHTTPRequestHandler):
             return self._send(500, {"error": str(e)})
 
     def api_entry_create(self, p):
+        """写入接口（agent「反向代理」落库的统一入口）。
+
+        支持 kind ∈ {paper, note, resource}：
+          - paper / note -> content/{papers,notes}/
+          - resource     -> content/resources/（独立知识资料，category 强制 uncat，禁 parent_paper）
+        可选显式 slug（如 papers_epibench_论文 / resources_cell_reference_mapping_weixin）；
+        不提供时按标题自动生成 `*{prefix}{base}_manual_{stamp}`（兼容旧 UI 手动新建）。
+        frontmatter 由 meta + 顶层字段组装，body 为 markdown 正文（不含 frontmatter）。
+        写入后自动 rebuild()（含 lint_kb + gate_v2 硬闸），失败会在响应中回显。
+        """
         kind = (p.get("kind") or "").strip()
-        if kind not in ("paper", "note"):
-            return self._send(400, {"error": "kind must be paper or note"})
+        if kind not in ("paper", "note", "resource"):
+            return self._send(400, {"error": "kind must be paper/note/resource"})
+        prefix = {"paper": "papers_", "note": "notes_", "resource": "resources_"}[kind]
         title = (p.get("title") or "").strip()
-        if not title:
-            return self._send(400, {"error": "title required"})
         body = p.get("body") or ""
         meta = p.get("meta") or {}
-        parent_paper = (p.get("parent_paper") or "").strip() or None
-        category = (p.get("category") or "").strip() or None
-        stamp = str(int(time.time()))[-7:]
-        base = re.sub(r"[^\w一-鿿]+", "_", title).strip("_").lower() or "entry"
-        prefix = "papers_" if kind == "paper" else "notes_"
-        slug = "%s%s_manual_%s" % (prefix, base, stamp)
-        while slug_to_file(slug) and os.path.exists(slug_to_file(slug)):
-            stamp = str(int(time.time() * 1000))[-8:]
+        req_slug = (p.get("slug") or "").strip()
+
+        if req_slug:
+            if not req_slug.startswith(prefix):
+                return self._send(400, {"error": "slug 必须以 %s 开头" % prefix})
+            if not re.match(r"^[A-Za-z0-9_一-鿿\-]+$", req_slug):
+                return self._send(400, {"error": "slug 含非法字符"})
+            slug = req_slug
+        else:
+            if not title:
+                return self._send(400, {"error": "title 必填（或显式提供 slug）"})
+            stamp = str(int(time.time()))[-7:]
+            base = re.sub(r"[^\w一-鿿]+", "_", title).strip("_").lower() or "entry"
             slug = "%s%s_manual_%s" % (prefix, base, stamp)
-        fm = {"title": title, "kind": kind}
-        if category:
+            while slug_to_file(slug) and os.path.exists(slug_to_file(slug)):
+                stamp = str(int(time.time() * 1000))[-8:]
+                slug = "%s%s_manual_%s" % (prefix, base, stamp)
+
+        fm = {}
+        if title:
+            fm["title"] = title
+        fm["kind"] = kind
+        # 分类：resource 强制 uncat（资源不参与文献库分类树）
+        category = (p.get("category") or meta.get("category") or "").strip() or None
+        if kind == "resource":
+            fm["category"] = category or "uncat"
+        elif category:
             fm["category"] = category
-        if parent_paper:
+        # parent_paper：resource 禁止挂载（破坏「只在知识库」隔离）
+        parent_paper = (p.get("parent_paper") or meta.get("parent_paper") or "").strip() or None
+        if parent_paper and kind != "resource":
             fm["parent_paper"] = parent_paper
-        if meta.get("tags"):
-            fm["tags"] = meta["tags"]
-        for k in ("journal", "date", "created", "pdf", "source", "doi", "summary"):
-            if meta.get(k):
-                fm[k] = meta[k]
-        # 创建时间 = 录入时间（默认当前时间，精确到分）；仅当用户未显式提供时才自动盖章
+        # 其余 frontmatter 字段：顶层优先，其次 meta
+        for k in ("journal", "date", "created", "pdf", "source", "doi",
+                  "summary", "一句话概括", "doc_type", "note_type",
+                  "pipeline_version", "tags", "authors", "type"):
+            v = p.get(k)
+            if v is None:
+                v = meta.get(k)
+            if k in ("tags", "authors") and isinstance(v, str):
+                v = [x.strip() for x in v.split(",") if x.strip()]
+            if v:
+                fm[k] = v
+        if kind == "note" and "type" not in fm:
+            fm["type"] = "note"
+        # 创建时间：缺省盖章当前时间（精确到分）
         if "created" not in fm:
             fm["created"] = time.strftime("%Y-%m-%d %H:%M")
+
         lines = ["---"]
         for k, v in fm.items():
             lines.extend(fmt_fm_pair(k, v))
         lines.append("---")
         raw = "\n".join(lines) + "\n" + (body or "") + "\n"
         path = slug_to_file(slug)
+        if not path:
+            return self._send(400, {"error": "slug 无法映射到本地路径"})
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
             open(path, "w", encoding="utf-8").write(raw)

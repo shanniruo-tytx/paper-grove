@@ -44,8 +44,8 @@ async function loadData(){
   // 统一规整：部分旧条目 frontmatter 里 tags 是逗号字符串而非列表，下游 .map/.join 会崩，这里一次性归一化为数组
   STATE.entries.forEach(function(e){ e.tags = normTags(e.tags); });
   if (typeof MiniSearch !== "undefined") {
-    mini = new MiniSearch({ fields:["title","text","tags","journal","catName","summary"],
-      storeFields:["title","type","kind","category","catName","catPath","tags","date","source","journal","summary","path","text","html","parent_paper"] });
+    mini = new MiniSearch({ fields:["title","text","tags","journal","catName","summary","一句话概括"],
+      storeFields:["title","type","kind","category","catName","catPath","tags","date","source","journal","summary","一句话概括","path","text","html","parent_paper"] });
     mini.addAll(STATE.entries);
     hasMini = true;
   } else { hasMini = false; }
@@ -243,6 +243,7 @@ function render(){
   var paged = paginate(list);
   var h = '<div class="bar"><input id="search" placeholder="全文搜索标题 / 正文 / 标签 / 期刊 / 分类…" value="'+esc(sel.q)+'" oninput="doSearch(this.value)"/>'
     + '<span class="cnt">'+list.length+' 条</span>'
+    + '<button class="btn sm ghost" onclick="refreshData(this)" title="刷新数据：读取 AI 新导入的文献，无需刷新整页">⟳ 刷新</button>'
     + '<button class="btn sm primary" onclick="newEntry(\'paper\')">+ 新建论文</button>'
     + '<button class="btn sm ghost" onclick="newEntry(\'note\')">+ 新建笔记</button></div>';
   if(view==="library"||view==="knowledge"||view==="timeline"){
@@ -274,7 +275,8 @@ function card(e){
   var att = attachmentsOf(e.slug).length;
   return '<div class="card'+(e.slug===STATE.preview?" active":"")+'" onclick="openPreview(\''+esc(e.slug)+'\')">'
     + '<div class="ct">'+esc(e.title)+badge+(att?' <span class="atc">📎'+att+'</span>':'')+'</div>'
-    + '<div class="cm">'+esc(e.kind==="paper"?(e.catPath||e.category):"知识资料")+' &middot; '+esc(e.journal||"")+' &middot; '+esc(e.created||"")+'</div>'
+    + (e["一句话概括"]?'<div class="cl"><span class="cl-l">一句话概括</span>'+esc(e["一句话概括"])+'</div>':'')
+    + '<div class="cm">'+esc(e.kind==="paper"?(e.catPath||e.category):("知识资料 · "+(e.doc_type||"资料")))+' &middot; '+esc(e.journal||"")+' &middot; '+esc(e.created||"")+'</div>'
     + (e.tags&&e.tags.length?'<div class="ctags">'+e.tags.map(function(t){return '<span class="chip" onclick="event.stopPropagation();setTag(\''+esc(t)+'\')">'+esc(t)+'</span>';}).join("")+'</div>':'')
     + (e.summary?'<div class="cs">'+esc(e.summary)+'</div>':'')
     + '</div>';
@@ -291,13 +293,14 @@ function sortList(list){
   });
   return arr;
 }
+var COLDEF = {title:"26%",catPath:"12%",journal:"12%",created:"9%",date:"9%",pdf:"9%",source:"9%",kind:"6%",tags:"8%",ops:"96px"};
+function colDef(k){ return COLDEF[k] || "auto"; }
 function colW(k){
-  var def = {title:"26%",catPath:"12%",journal:"12%",created:"9%",date:"9%",pdf:"9%",source:"9%",kind:"6%",tags:"8%"};
   if(STATE.colw && STATE.colw[k]) return STATE.colw[k];
-  return def[k]||"auto";
+  return colDef(k);
 }
 function libTable(list){
-  var th = function(k,label,sortable){ return '<th data-k="'+k+'" style="width:'+colW(k)+'"'+(sortable?' onclick="sortBy(\''+k+'\')"':'')+'>'+label+sortArrow(k)+'<div class="rs" onmousedown="colResize(event,this)"></div></th>'; };
+  var th = function(k,label,sortable){ return '<th data-k="'+k+'" style="width:'+colW(k)+'"'+(sortable?' onclick="sortBy(\''+k+'\')"':'')+'>'+label+sortArrow(k)+'<div class="rs" onmousedown="colResize(event,this)" ondblclick="colReset(event,this)" title="拖动调宽 · 双击恢复默认"></div></th>'; };
   var pdfCell = function(e){ return (e.pdf && e.pdf!=="无") ? '<a class="lnk" href="'+esc(e.pdf)+'" target="_blank" rel="noopener">'+esc(e.pdf)+'</a>' : "无"; };
   var srcCell = function(e){ return (e.source) ? '<a class="lnk" href="'+esc(e.source)+'" target="_blank" rel="noopener" title="'+esc(e.source)+'">'+esc(e.source)+'</a>' : "无"; };
   var rows = list.map(function(e){
@@ -306,7 +309,7 @@ function libTable(list){
     var att = attList.length;
     var open = !!(STATE.expanded||{})[e.slug];
     var main = '<tr class="'+(e.slug===STATE.preview?"sel":"")+'" onclick="openPreview(\''+esc(e.slug)+'\')">'
-      + '<td><span class="tw'+(att?(open?' exp':''):' hide')+'" id="tog-'+esc(e.slug)+'" onclick="toggleAtt(\''+esc(e.slug)+'\',event)"></span> <a class="t" onclick="event.stopPropagation();openPreview(\''+esc(e.slug)+'\')">'+esc(e.title)+'</a>'+(att?' <span class="atc">📎'+att+'</span>':'')+'</td>'
+      + '<td><span class="tw'+(att?(open?' exp':''):' hide')+'" id="tog-'+esc(e.slug)+'" onclick="toggleAtt(\''+esc(e.slug)+'\',event)"></span> <a class="t" onclick="event.stopPropagation();openPreview(\''+esc(e.slug)+'\')">'+esc(e.title)+'</a>'+(att?' <span class="atc">📎'+att+'</span>':'')+(e["一句话概括"]?'<div class="cl">'+esc(e["一句话概括"])+'</div>':'')+'</td>'
       + '<td class="catpath">'+esc(e.catPath||e.category)+'</td>'
       + '<td>'+esc(e.journal||"—")+'</td>'
       + '<td>'+esc(e.created||"—")+'</td>'
@@ -328,7 +331,7 @@ function libTable(list){
     + th("title","标题",true) + th("catPath","分类",true) + th("journal","期刊",true)
     + th("created","创建时间",true) + th("date","发表时间",true) + th("pdf","本地PDF",false) + th("source","原文地址",false)
     + th("kind","类型",false) + '<th data-k="tags" style="width:'+colW("tags")+'">标签<div class="rs" onmousedown="colResize(event,this)"></div></th>'
-    + '<th data-k="ops" style="width:96px">操作</th>'
+    + '<th data-k="ops" style="width:'+colW("ops")+'">操作</th>'
     + '</tr></thead><tbody>'+rows+'</tbody></table>';
 }
 function attItem(a){
@@ -336,6 +339,10 @@ function attItem(a){
   return '<div class="att-item" onclick="event.stopPropagation();openPreview(\''+esc(a.slug)+'\')" title="'+esc(a.title)+'">'
     + badge
     + '<span class="att-t">'+esc(a.title)+'</span>'
+    + '<span class="att-btns">'
+    + '<button class="row-btn" title="编辑" onclick="event.stopPropagation();enterEdit(\''+esc(a.slug)+'\')">✏️</button>'
+    + '<button class="row-btn danger" title="删除" onclick="event.stopPropagation();deleteEntry(\''+esc(a.slug)+'\',\''+esc(a.title)+'\')">🗑</button>'
+    + '</span>'
     + '</div>';
 }
 function toggleAtt(slug, ev){
@@ -458,6 +465,7 @@ function renderPreview(){
   }).join("")+'</div>' : '';
   var summaryHtml = e.summary ? '<div class="pv-summary"><div class="pv-sub">摘要</div><div class="pv-summary-body">'+esc(e.summary)+'</div></div>' : '';
   el.innerHTML = '<div class="pv-head"><div class="pv-title">'+esc(e.title)+'</div><button class="pv-close" onclick="closePreview()">×</button></div>'
+    + (e["一句话概括"]?'<div class="pv-oneliner"><span class="pv-ol-l">一句话概括</span>'+esc(e["一句话概括"])+'</div>':'')
     + '<div class="pv-meta">'+previewMeta(e)+'</div>'
     + attHtml
     + summaryHtml
@@ -466,6 +474,7 @@ function renderPreview(){
     + '<div class="pv-actions"><button class="btn sm primary" onclick="enterEdit(\''+esc(e.slug)+'\')">编辑</button>'
     + '<a class="btn sm ghost" href="'+esc(e.path)+'" target="_blank">在新标签打开</a>'
     + (e.kind==="paper"?'<button class="btn sm ghost" onclick="jumpPreviewToFirstAtt(\''+esc(e.slug)+'\')">打开首个附件</button>':'')
+    + '<button class="btn sm danger" onclick="deleteEntry(\''+esc(e.slug)+'\',\''+esc(e.title)+'\')">删除</button>'
     + '<button class="btn sm ghost" onclick="closePreview()">关闭</button></div>';
   buildTocBox(e);
 }
@@ -476,7 +485,7 @@ async function enterEdit(slug){
   var e = bySlug(slug);
   if(!e) return;
   var meta = {};
-  ["journal","date","created","pdf","source","doi","summary","tags","parent_paper","category"].forEach(function(k){ if(e[k]!=null) meta[k]=e[k]; });
+  ["journal","date","created","pdf","source","doi","summary","一句话概括","tags","parent_paper","category"].forEach(function(k){ if(e[k]!=null) meta[k]=e[k]; });
   var body = e.text || "";
   if(!body){
     try{
@@ -524,6 +533,7 @@ async function saveInline(slug){
     meta.source = document.getElementById("ie-source").value;
     meta.doi = document.getElementById("ie-doi").value;
     meta.summary = document.getElementById("ie-summary").value;
+    meta["一句话概括"] = document.getElementById("ie-oneliner").value.trim();
     meta.category = document.getElementById("ie-category").value || "uncat";
   } else {
     meta.parent_paper = document.getElementById("ie-parent") ? document.getElementById("ie-parent").value || null : (meta.parent_paper||null);
@@ -743,7 +753,8 @@ function renderPreviewEdit(el, e){
       + '<label class="efld"><span>原文地址</span><input id="ie-source" type="text" value="'+esc(ed.meta.source||"")+'"></label>'
       + '<label class="efld"><span>DOI</span><input id="ie-doi" type="text" value="'+esc(ed.meta.doi||"")+'"></label>'
       + '</div>'
-      + '<label class="efld blk"><span>摘要（独立于正文）</span><textarea id="ie-summary" class="edit-raw" spellcheck="false">'+esc(ed.meta.summary||"")+'</textarea></label>';
+      + '<label class="efld blk"><span>摘要（独立于正文）</span><textarea id="ie-summary" class="edit-raw" spellcheck="false">'+esc(ed.meta.summary||"")+'</textarea></label>'
+      + '<label class="efld blk"><span>一句话概括（尽可能短而不省略，概括文章做了一个什么东西）</span><input id="ie-oneliner" type="text" value="'+esc(ed.meta["一句话概括"]||"")+'"></label>';
   }
   var tagVal = normTags(ed.meta.tags).join(", ");
   var ppHtml = "";
@@ -798,7 +809,7 @@ function buildTocBox(e){
   }).join("");
   if(!box){
     box = document.createElement("div");
-    box.id = "tocBox"; box.className = "toc-box";
+    box.id = "tocBox"; box.className = "toc-box min";
     prev.appendChild(box);
   }
   box.innerHTML = '<div class="toc-bar" onmousedown="tocDrag(event)"><span>目录</span><span class="toc-min">▾</span></div>'
@@ -957,17 +968,83 @@ function colResize(ev, handle){
   var cell = handle.closest ? handle.closest("th") : handle.parentNode; // .rs 手柄的真实 <th>
   if(!cell) return;
   var k = cell.getAttribute("data-k");
-  var startX=ev.clientX;
-  var startW=cell.getBoundingClientRect().width;
-  function mm(e){
-    var w=Math.max(60, startW+(e.clientX-startX));
-    cell.style.width=w+"px";
-    if(!STATE.colw) STATE.colw={};
-    if(k){ STATE.colw[k]=w+"px"; localStorage.setItem("kb_colw", JSON.stringify(STATE.colw)); }
+  // 右邻居列：拖动本列右边界时，只和它互换宽度，其它列不动（两列之和恒定）
+  var next = cell.nextElementSibling;
+  while(next && (next.tagName ? next.tagName.toLowerCase() !== "th" : true)) next = next.nextElementSibling;
+  var startX = ev.clientX;
+  var startW = cell.getBoundingClientRect().width;
+  var nextStartW = next ? next.getBoundingClientRect().width : 0;
+  var pair = startW + nextStartW; // 恒定：本列 + 右邻居 的总宽
+  var MIN = 60;
+  var moved = false;
+  // 拖拽引导竖线（贯穿整张表、跟随光标）
+  var guide = document.getElementById("col-guide");
+  if(!guide){ guide = document.createElement("div"); guide.id = "col-guide"; document.body.appendChild(guide); }
+  function apply(w, nw){
+    cell.style.width = w + "px";
+    if(next) next.style.width = nw + "px";
+    if(!STATE.colw) STATE.colw = {};
+    if(k) STATE.colw[k] = w + "px";
+    if(next){ var nk = next.getAttribute("data-k"); if(nk) STATE.colw[nk] = nw + "px"; }
   }
-  function mu(){ document.removeEventListener("mousemove",mm); document.removeEventListener("mouseup",mu); document.body.style.cursor=""; }
-  document.addEventListener("mousemove",mm); document.addEventListener("mouseup",mu);
-  document.body.style.cursor="col-resize";
+  function mm(e){
+    var dx = e.clientX - startX;
+    if(Math.abs(dx) > 3) moved = true;
+    var w = startW + dx;
+    var nw = next ? pair - w : w; // 没有右邻居时单独调整（理论上不会发生，ops 后无列）
+    if(w < MIN){ w = MIN; nw = next ? pair - w : w; }
+    if(next && nw < MIN){ nw = MIN; w = pair - nw; }
+    if(w < MIN) w = MIN;
+    if(next && nw < MIN) nw = MIN;
+    apply(w, nw);
+    var tbl = cell.closest("table");
+    if(tbl){
+      var r = tbl.getBoundingClientRect();
+      guide.style.left = e.clientX + "px";
+      guide.style.top = r.top + "px";
+      guide.style.height = r.height + "px";
+      guide.style.display = "block";
+    }
+  }
+  function mu(){
+    document.removeEventListener("mousemove", mm);
+    document.removeEventListener("mouseup", mu);
+    document.body.style.cursor = "";
+    document.body.classList.remove("col-resizing");
+    if(handle) handle.classList.remove("drag");
+    if(guide) guide.style.display = "none";
+    if(STATE.colw) localStorage.setItem("kb_colw", JSON.stringify(STATE.colw)); // 仅松手时落盘
+    // 关键：拖拽结束后浏览器会在手柄上补发一次 click 并冒泡到 <th> 的排序处理器，
+    // 表现为「调完宽度顺手排了一次序」。在捕获阶段拦掉这一次 click 即可。
+    if(moved){
+      var cleanup = function(){ document.removeEventListener("click", supp, true); clearTimeout(tm); };
+      var supp = function(ce){ ce.stopPropagation(); ce.preventDefault(); cleanup(); };
+      var tm = setTimeout(cleanup, 0); // 兜底：本次交互若没产生 click，下一拍也解绑
+      document.addEventListener("click", supp, true);
+    }
+  }
+  document.addEventListener("mousemove", mm);
+  document.addEventListener("mouseup", mu);
+  document.body.style.cursor = "col-resize";
+  document.body.classList.add("col-resizing");
+  if(handle) handle.classList.add("drag");
+}
+
+/* 双击分隔条：本列 + 右邻居 复位为默认宽度 */
+function colReset(ev, handle){
+  ev.preventDefault(); ev.stopPropagation();
+  var cell = handle.closest ? handle.closest("th") : handle.parentNode;
+  if(!cell) return;
+  var next = cell.nextElementSibling;
+  while(next && (next.tagName ? next.tagName.toLowerCase() !== "th" : true)) next = next.nextElementSibling;
+  function reset(c){
+    if(!c) return;
+    var kk = c.getAttribute("data-k");
+    if(STATE.colw && STATE.colw[kk]) delete STATE.colw[kk];
+    c.style.width = colDef(kk);
+  }
+  reset(cell); reset(next);
+  localStorage.setItem("kb_colw", JSON.stringify(STATE.colw || {}));
 }
 
 /* ---------- 分类管理 ---------- */
@@ -1012,6 +1089,25 @@ async function apiPost(path, payload){
   return r.json();
 }
 async function reload(){ var r = await fetch("/api/state"); STATE = await r.json(); renderAll(); }
+// 局部刷新：仅重新拉取文献/分类数据并重渲染，保留当前视图、筛选、排序、分页
+async function refreshData(btn){
+  if(btn){ btn.disabled = true; btn.innerHTML = "⟳ 刷新中…"; }
+  try{
+    var r = await fetch("/api/state");
+    if(r.ok){ var d = await r.json(); STATE.entries = d.entries||[]; STATE.categories = d.categories||[]; STATE.version = d.version; BACKEND = true; }
+    else throw 0;
+  }catch(e){
+    try{ var r2 = await fetch("index.json?t=" + (+new Date())); var d2 = await r2.json(); STATE.entries = d2.entries||[]; STATE.categories = d2.categories||[]; STATE.version = d2.version; BACKEND = false; }
+    catch(e2){ if(btn){ btn.disabled = false; btn.innerHTML = "⟳ 刷新"; } renderBeacon(); return; }
+  }
+  STATE.entries.forEach(function(en){ en.tags = normTags(en.tags); });
+  if(hasMini && typeof MiniSearch !== "undefined"){
+    mini = new MiniSearch({ fields:["title","text","tags","journal","catName","summary","一句话概括"],
+      storeFields:["title","type","kind","category","catName","catPath","tags","date","source","journal","summary","一句话概括","path","text","html","parent_paper"] });
+    mini.addAll(STATE.entries);
+  }
+  renderAll();
+}
 function addTopCat(){ openCatModal("create", null); }
 function importRDF(){
   openConfirmModal({
@@ -1227,11 +1323,11 @@ function renderSkills(){
   var skills = [
     {name:"paper-locator", title:"论文定位与提取", desc:"从公众号文章、B站视频、论文链接、其他资料中提取论文名称并精确定位原始论文，供下一步拆解使用。", path:"kb-site/.workbuddy/skills/paper-locator/SKILL.md"},
     {name:"paper-reader", title:"论文深度拆解", desc:"以生物医学、生物信息学与 AI4Science 研究者视角，深度拆解单篇论文。输出 #0-#9 结构，#0 严格表格形式，不写标题概述。", path:".workbuddy/skills/paper-reader/SKILL.md"},
-    {name:"paper-importer", title:"论文导入器", desc:"将拆解 MD 正确导入 kb-site。录入论文基本信息、自动归类（禁新建分类）、提取标签、挂载笔记、目录正确导入。", path:"kb-site/.workbuddy/skills/paper-importer/SKILL.md"}
+    {name:"article-summarizer", title:"文章总结器（统一入口）", desc:"收到文章链接/文本后先判定「论文 or 非论文」，再走对应路线：论文→paper-reader 拆解并作为 paper+note 导入；非论文→按 summary-format 总结并作为 kind:resource 独立导入「知识资料」。两路线物理隔离，build 硬闸兜底。", path:"kb-site/.workbuddy/skills/article-summarizer/SKILL.md"}
   ];
   var h = '<div class="panel" style="max-width:820px"><h2>Skill 管理</h2>';
-  h += '<p class="placeholder" style="text-align:left;padding:0 0 12px;color:var(--sub)">以下三个 Skill 构成论文处理流水线：<b>定位 → 拆解 → 导入</b>。点击编辑可直接修改 SKILL.md，修改后即时生效。</p>';
-  h += '<div class="pipeline"><div class="pipe-step"><span class="pipe-num">①</span><b>定位</b><br><small>论文提取</small></div><span class="pipe-arr">→</span><div class="pipe-step"><span class="pipe-num">②</span><b>拆解</b><br><small>深度分析</small></div><span class="pipe-arr">→</span><div class="pipe-step"><span class="pipe-num">③</span><b>导入</b><br><small>入库平台</small></div></div>';
+  h += '<p class="placeholder" style="text-align:left;padding:0 0 12px;color:var(--sub)">以下三个 Skill 构成文章处理流水线：<b>定位 → 拆解 → 总结导入</b>。其中「文章总结器」会先判定论文/非论文再分流。点击编辑可直接修改 SKILL.md，修改后即时生效。</p>';
+  h += '<div class="pipeline"><div class="pipe-step"><span class="pipe-num">①</span><b>定位</b><br><small>论文提取</small></div><span class="pipe-arr">→</span><div class="pipe-step"><span class="pipe-num">②</span><b>拆解</b><br><small>深度分析</small></div><span class="pipe-arr">→</span><div class="pipe-step"><span class="pipe-num">③</span><b>总结导入</b><br><small>入库平台</small></div></div>';
   skills.forEach(function(s){
     h += '<div class="skill-card"><div class="skill-head"><span class="skill-badge">'+esc(s.name)+'</span><strong>'+esc(s.title)+'</strong></div>';
     h += '<div class="skill-desc">'+esc(s.desc)+'</div>';
@@ -1267,7 +1363,7 @@ function downloadFile(filename, content){
 async function downloadPipeline(){
   var h = '# 论文定位 → 拆解 → 导入 自动化流水线\n\n';
   h += '将以下 System Prompt 注入任意大模型，然后输入论文链接即可自动完成全流程。\n\n---\n\n';
-  var names = ["paper-locator","paper-reader","paper-importer"];
+  var names = ["paper-locator","paper-reader","article-summarizer"];
   for(var i=0; i<names.length; i++){
     try{
       var r = await fetch("/api/skill/raw?name="+encodeURIComponent(names[i]));
@@ -1276,10 +1372,10 @@ async function downloadPipeline(){
     }catch(_){}
   }
   h += '\n## 使用方式\n\n将以上内容作为 System Prompt，然后输入论文链接：\n\n> "按照 pipeline，拆解并导入这篇论文：[链接]"\n';
-  downloadFile("paper-pipeline.md", h);
+  downloadFile("article-pipeline.md", h);
 }
 async function downloadAllSkills(){
-  var names = {"paper-locator":"SKILL.md","paper-reader":"SKILL.md","paper-importer":"SKILL.md"};
+  var names = {"paper-locator":"SKILL.md","paper-reader":"SKILL.md","article-summarizer":"SKILL.md"};
   var files = {};
   for(var k in names){
     try{

@@ -1,4 +1,4 @@
-import os, re, json, shutil
+import os, re, json, shutil, subprocess, sys
 import markdown
 try:
     import yaml
@@ -115,6 +115,14 @@ def main():
             # 沙箱/安全垫片可能拦截目录删除：退化为原地覆盖（残留旧 html 不影响使用）
             pass
     os.makedirs(ASSETS, exist_ok=True)
+    # 内容契约硬闸：papers/notes/resources 的 kind 契约、resources 隔离、
+    # 以及「防论文模板串流」全部在此校验。任一违规都让 build 失败，
+    # 从物理上保证「文章总结器」两套 harne­ss 不会把内容写错目录/用错模板。
+    _lint = os.path.join(ROOT, "scripts", "lint_kb.py")
+    if os.path.exists(_lint):
+        rc = subprocess.run([sys.executable, _lint]).returncode
+        if rc != 0:
+            sys.exit(rc)
     entries = []
     for dp, _, fs in os.walk(CONTENT):
         for f in sorted(fs):
@@ -144,7 +152,10 @@ def main():
             created = str(fm.get("created") or "")  # 记录创建时间：仅取 frontmatter created，不回落到发表日期
             source = fm.get("source", "")
             journal = fm.get("journal", "")
+            doc_type = fm.get("doc_type", "")
             summary = fm.get("summary") or ""
+            # 一句话概括：尽可能短而不省略地概括文章做了一个什么东西；列表紧跟标题、详情与数据库记录均展示
+            one_liner = fm.get("一句话概括") or ""
             html = render(body, kind=kind, title=title)
             out_rel = slug + ".html"
             open(os.path.join(DIST, out_rel), "w", encoding="utf-8").write(
@@ -157,13 +168,21 @@ def main():
                 "parent_paper": parent_paper, "pdf": pdf,
                 "catName": cat_name, "catPath": cat_path_val,
                 "tags": tags, "authors": authors, "date": date, "created": created, "source": source,
-                "journal": journal, "doi": fm.get("doi", ""), "summary": summary,
+                "journal": journal, "doi": fm.get("doi", ""), "summary": summary, "doc_type": doc_type,
+                "一句话概括": one_liner,
                 "path": out_rel, "text": body, "html": html,
             })
     entries.sort(key=lambda e: (e["date"], e["title"]), reverse=True)
     out = {"entries": entries, "categories": CATS}
     json.dump(out, open(os.path.join(DIST, "index.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     open(os.path.join(DIST, "index.html"), "w", encoding="utf-8").write(INDEX_TPL)
+    # 第二道闸：v2 论文挂载完整性 + 拆解/白话 指标一致性格查（与 lint_kb 合并进 build，
+    # 避免漏跑 gate_v2 导致 v2 论文缺白话解读或指标冲突也能 build 成功）
+    _gate = os.path.join(ROOT, "gate_v2.py")
+    if os.path.exists(_gate):
+        rc = subprocess.run([sys.executable, _gate]).returncode
+        if rc != 0:
+            sys.exit(rc)
     for fn in ["style.css", "app.js", "marked.min.js"]:
         shutil.copyfile(os.path.join(ROOT, "assets", fn), os.path.join(ASSETS, fn))
     print("built %d entries -> %s" % (len(entries), DIST))

@@ -4,6 +4,8 @@
 
 > 本仓库**只含框架代码**，不含任何个人论文与分类数据（论文正文、笔记、`categories.json`、个人技能目录等已被 `.gitignore` 排除）。clone 下来是空架子，按下方「内容规范」填入你自己的文献即可。
 
+> 📐 **架构、设计理念、使用方式，以及「大模型反向代理论文解析 + 自主调接口写入」的运行模式**，详见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
+
 ---
 
 ## 1. 特性
@@ -68,7 +70,7 @@ paper-grove/
 └── requirements.txt
 ```
 
-`dist/`、`_papers_archive/`、`categories.json`、`content/papers/*.md`、`content/notes/*.md` 等均为**本地生成或个人数据**，不入库。
+`dist/`、`_papers_archive/`、`categories.json`、`content/papers/*.md`、`content/notes/*.md`、`content/resources/*.md` 等均为**本地生成或个人数据**，不入库。
 
 ---
 
