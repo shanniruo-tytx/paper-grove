@@ -71,6 +71,8 @@ curl -fsSL https://raw.githubusercontent.com/shanniruo-tytx/paper-grove/main/scr
 
 > 无参数直接跑也能用，只是站点是**空的**——因为 `content/**` 与 `categories.json` 属于个人数据，被 `.gitignore` 排除，仓库里只有程序壳。
 
+**网络受限时**：若该机器访问不了 `github.com`（公司代理 / 网络限制），引导脚本会自动改走 `codeload.github.com` 的 tarball 通道下载源码并解压，**不需要 git**。它也会自动识别 `http_proxy` / `https_proxy` 环境变量（PowerShell 默认不读，脚本已处理）。
+
 **把文献一起带过去**：先在旧机器打包，再在新机器导入。
 
 ```bash

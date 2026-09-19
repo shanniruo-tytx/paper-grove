@@ -108,12 +108,37 @@ good "Git 就绪"
 
 # ---------- 3. Clone / update ----------
 info "[3/4] 获取源码 → $DIR"
+# 备用通道：部分网络屏蔽 github.com 但放行 codeload.github.com
+if [[ "$REPO" =~ github\.com[:/]+([^/]+)/([^/.]+) ]]; then
+  TARBALL="https://codeload.github.com/${BASH_REMATCH[1]}/${BASH_REMATCH[2]}/tar.gz/refs/heads/${BRANCH}"
+else
+  TARBALL=""
+fi
+
+get_via_tarball() {
+  local dest="$1"
+  [[ -n "$TARBALL" ]] || { bad "无法从 $REPO 推导 tarball 地址"; return 1; }
+  command -v tar >/dev/null 2>&1 || { bad "tar 不可用"; return 1; }
+  local tmp="${TMPDIR:-/tmp}/pg-$$.tar.gz"
+  info "下载源码 tarball（codeload）…"
+  curl -fsSL "$TARBALL" -o "$tmp" || { bad "tarball 下载失败"; return 1; }
+  mkdir -p "$dest"
+  tar -xzf "$tmp" -C "$dest" --strip-components=1 || { bad "解压失败"; return 1; }
+  rm -f "$tmp"
+  good "已从 tarball 解出源码"
+}
+
 if [[ -d "$DIR/.git" ]]; then
   good "已存在仓库，fast-forward 更新…"
   git -C "$DIR" pull --ff-only || warn "git pull 失败（本地有提交？），保留现有副本"
 else
-  git clone --branch "$BRANCH" "$REPO" "$DIR" || { bad "clone 失败，检查网络或仓库地址：$REPO"; exit 1; }
-  good "clone 完成"
+  if ! git clone --branch "$BRANCH" "$REPO" "$DIR" 2>/dev/null; then
+    warn "git clone 失败（github.com 不可达？）→ 改用 tarball 通道"
+    rm -rf "$DIR"
+    get_via_tarball "$DIR" || { bad "无法获取源码，请手动拷贝目录"; exit 1; }
+  else
+    good "clone 完成"
+  fi
 fi
 
 # ---------- 3.5 内容包（可选）----------

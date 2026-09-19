@@ -28,6 +28,30 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"   # no progress spam on downloads
+
+# PowerShell (unlike curl/git) does not read http_proxy env vars automatically
+function Get-Proxy {
+    $p = $env:https_proxy
+    if ([string]::IsNullOrWhiteSpace($p)) { $p = $env:http_proxy }
+    if ([string]::IsNullOrWhiteSpace($p)) { return $null }
+    return $p
+}
+
+function Invoke-Download($Uri, $OutFile) {
+    $p = Get-Proxy
+    if ($p) { Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing -TimeoutSec 180 -Proxy $p }
+    else    { Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing -TimeoutSec 180 }
+}
+
+function Test-Https($Uri) {
+    $p = Get-Proxy
+    try {
+        if ($p) { Invoke-WebRequest -Uri $Uri -Method Head -TimeoutSec 8 -UseBasicParsing -Proxy $p | Out-Null }
+        else    { Invoke-WebRequest -Uri $Uri -Method Head -TimeoutSec 8 -UseBasicParsing | Out-Null }
+        return $true
+    } catch { return $false }
+}
 
 function Info($m) { Write-Host "==> $m" -ForegroundColor Cyan }
 function Good($m) { Write-Host "    [ok] $m" -ForegroundColor Green }
@@ -106,14 +130,56 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
         Refresh-Path
     }
 }
+$hasGit = $true
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-    Bad "Git unavailable. Install it from https://git-scm.com/ then re-run."
-    exit 1
+    Warn "Git unavailable -> will fall back to tarball download (codeload), no git needed."
+    $hasGit = $false
+} else {
+    Good "Git found"
 }
-Good "Git found"
+
+# Fallback channel: some networks block github.com but allow codeload.github.com
+function Get-ViaTarball($Dest) {
+    $tb = ""
+    if ($Repo -match 'github\.com[:/]+([^/]+)/([^/\.]+)') {
+        $tb = "https://codeload.github.com/" + $Matches[1] + "/" + $Matches[2] + "/tar.gz/refs/heads/" + $Branch
+    }
+    if ($tb -eq "") { Bad "cannot derive tarball URL from repo: $Repo"; return $false }
+    if (-not (Get-Command tar -ErrorAction SilentlyContinue)) {
+        Bad "tar not available (Windows 10 1803+ ships it). Install Git or copy the folder manually."
+        return $false
+    }
+    $tmp = Join-Path $env:TEMP ("pg-" + [System.IO.Path]::GetRandomFileName() + ".tar.gz")
+    Info "Downloading source tarball (codeload) ..."
+    $oldEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        Invoke-Download -Uri $tb -OutFile $tmp
+    } catch {
+        $ErrorActionPreference = $oldEap
+        Bad "tarball download failed: $($_.Exception.Message)"
+        return $false
+    }
+    New-Item -ItemType Directory -Force -Path $Dest | Out-Null
+    (& tar -xzf $tmp -C $Dest --strip-components=1 2>&1) | ForEach-Object { Write-Host "      $_" }
+    $rc = $LASTEXITCODE
+    $ErrorActionPreference = $oldEap
+    Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+    if ($rc -ne 0) { Bad "tar extract failed"; return $false }
+    Good "Source extracted from tarball."
+    return $true
+}
 
 # ---------- 3. Clone / update ----------
 Info "[3/4] Source code -> $Dir"
+# Probe first: if github.com is blocked (common behind corporate proxies / GFW),
+# skip git clone entirely instead of letting it hang for minutes.
+if ($hasGit -and -not (Test-Path (Join-Path $Dir ".git"))) {
+    if (-not (Test-Https "https://github.com")) {
+        Warn "github.com unreachable from here -> using tarball channel"
+        $hasGit = $false
+    }
+}
 $gitDir = Join-Path $Dir ".git"
 if (Test-Path $gitDir) {
     Good "Existing repo detected, fast-forward update..."
@@ -126,6 +192,8 @@ if (Test-Path $gitDir) {
     Pop-Location
     $ErrorActionPreference = $oldEap
     if ($pullRc -ne 0) { Warn "git pull failed (local commits ahead?) - keeping local copy" }
+} elseif (-not $hasGit) {
+    if (-not (Get-ViaTarball $Dir)) { Bad "cannot get source code"; exit 1 }
 } else {
     $oldEap = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
@@ -133,10 +201,15 @@ if (Test-Path $gitDir) {
     $cloneRc = $LASTEXITCODE
     $ErrorActionPreference = $oldEap
     if ($cloneRc -ne 0) {
-        Bad "git clone failed. Check network / repo URL: $Repo"
-        exit 1
+        Warn "git clone failed (github.com blocked?) -> trying tarball channel"
+        Remove-Item -Recurse -Force $Dir -ErrorAction SilentlyContinue
+        if (-not (Get-ViaTarball $Dir)) {
+            Bad "cannot get source code. Check network or copy the folder manually."
+            exit 1
+        }
+    } else {
+        Good "Cloned."
     }
-    Good "Cloned."
 }
 
 # ---------- 3.5 Content bundle (optional) ----------
@@ -149,7 +222,7 @@ if ($Bundle -ne "") {
         $zip = Join-Path $env:TEMP ("pg-bundle-" + [System.IO.Path]::GetFileName($Bundle))
         Info "Downloading bundle ..."
         try {
-            Invoke-WebRequest -Uri $Bundle -OutFile $zip -UseBasicParsing
+            Invoke-Download -Uri $Bundle -OutFile $zip
         } catch {
             Bad "bundle download failed: $($_.Exception.Message)"
             exit 1
