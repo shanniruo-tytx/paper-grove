@@ -127,6 +127,7 @@ paper-grove/
 ├── scripts/bootstrap.sh  # 【换机器】macOS/Linux 一键引导
 ├── scripts/bundle.py     # 内容包 export/import：把文献搬到新机器
 ├── scripts/sync_skills.py # 解析规则同步：harness/（或 Hub）-> .workbuddy/skills
+├── scripts/push_via_api.py # git push 走不通时，经 GitHub API 精确重放提交（sha 不变、不分叉）
 ├── harness/              # 【入库】解析规则规范副本（article-summarizer 的 skill/prompt）
 ├── paper_pipeline/       # 管线模块（解析、frontmatter 校验、归档等）
 ├── import_rdf.py         # 从 Zotero 导出的 .rdf 批量导入
