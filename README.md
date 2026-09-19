@@ -18,33 +18,44 @@
 
 ---
 
-## 2. 快速部署（3 步）
+## 2. 一键部署
 
 环境要求：**Python 3.8+**（仅用到标准库 + 一个 markdown 库）。
 
 ```bash
-# 1) 克隆
 git clone https://github.com/shanniruo-tytx/paper-grove.git
 cd paper-grove
 
-# 2) 安装依赖
-pip install -r requirements.txt
-#   markdown 为必装；PyYAML 为可选（缺失时 frontmatter 改用内置兜底解析）
-
-# 3) 准备分类树（可选但推荐）：
-#    仓库不带你的 categories.json，请从示例复制一份再改
-cp categories.example.json categories.json
-
-# 4) 生成静态站点
-python build.py
-#   -> 输出到 dist/，打印 "built N entries -> dist"
-
-# 5) 启动本地站点
-python server.py
-#   -> 打开 http://localhost:8766
+python deploy.py          # 装依赖 → 构建（双闸校验）→ 启动 http://localhost:8766
 ```
 
+一条命令串完四步：装依赖 → 准备 `categories.json`（缺失时自动从示例复制）→ `build.py` 构建（内含 `lint_kb.py` + `gate_v2.py` 双闸）→ 启动 `server.py`。
+
+| 命令 | 作用 |
+| --- | --- |
+| `python deploy.py` | 完整部署并**前台**启动（Ctrl+C 停止） |
+| `python deploy.py --no-deps` | 依赖已装，跳过安装（最快） |
+| `python deploy.py --background` | **后台常驻**启动，脚本立即返回并打印 PID |
+| `python deploy.py --no-serve` | 只构建不启动（CI / 只想产出 `dist/`） |
+| `python deploy.py --no-build` | 只启动不重建 |
+| `python deploy.py --port 9000 --open` | 换端口并自动开浏览器 |
+
+Windows 双击 `deploy.bat` 等同 `python deploy.py`。
+
+<details>
+<summary>手动分步（等价上面那条命令，仅在你不想用脚本时）</summary>
+
+```bash
+pip install -r requirements.txt
+cp categories.example.json categories.json   # 可选，无则全部落在「待归类」
+python build.py                              # -> dist/，打印 built N entries
+python server.py                             # -> http://localhost:8766
+```
+
+</details>
+
 > 端口可用环境变量覆盖：`PORT=9000 python server.py`。
+> 构建被双闸拦下时 `deploy.py` 会原样打印报错并**中止**，不会产出半成品站点。
 
 ---
 
@@ -52,9 +63,13 @@ python server.py
 
 ```
 paper-grove/
-├── build.py              # 构建：扫描 content/ -> 生成 dist/ 静态站点
-├── server.py             # 本地后端（ThreadingHTTPServer）+ 分类/条目管理 API
-├── gate_v2.py            # 语义校验（双栏对齐 / 白话价值等 Gate）
+├── deploy.py             # 【一键部署】装依赖 → 构建（双闸）→ 启动站点
+├── deploy.bat            # Windows 双击版入口（等同 python deploy.py）
+├── build.py              # 构建：扫描 content/ -> 生成 dist/ 静态站点（开头跑第 1 闸）
+├── server.py             # 本地后端（ThreadingHTTPServer）+ 分类/条目/导入 API
+├── ingest.py             # 接口化导入助手：本地 md -> POST /api/ingest -> 落库+构建
+├── gate_v2.py            # 第 2 闸：v2 论文挂载完整性 + 拆解↔白话 指标一致性
+├── scripts/lint_kb.py    # 第 1 闸：kind 契约 / 资源隔离 / 防模板串流 / 双栏格式
 ├── paper_pipeline/       # 管线模块（解析、frontmatter 校验、归档等）
 ├── import_rdf.py         # 从 Zotero 导出的 .rdf 批量导入
 ├── import_zotero.py      # Zotero 导入辅助
@@ -110,6 +125,29 @@ type: note
 - 正文**不要**写 `[TOC]`（前端自动生成目录）。
 - 正文从 `## #0` 开始；`#0` 区块为松散键值对，前端自动渲染为表格。
 
+### 4.3 知识资料 `content/resources/<id>.md`（只在「知识库」显示，不进文献库）
+
+非论文材料（综述 / 论坛帖 / 工具或产品介绍 / 访谈 / 新闻 / 观点评论）走这里，是**独立条目**：
+
+```yaml
+---
+title: 标题
+kind: resource
+doc_type: 技术博客 / 综述 / 论坛帖 / 官方文档 / 文本 / 新闻
+category: uncat          # 固定 uncat：资源不参与文献库分类树
+source: 原文链接
+journal: 出处名（公众号/站点名）
+authors: [作者或机构]
+date: 2026-05-12
+created: 2026-05-12 10:30
+tags: [领域, 方法]
+summary: 摘要长文
+一句话概括: ≤140 字电梯演讲（是什么/解决什么问题/为什么值得记）
+---
+```
+
+隔离铁律（`scripts/lint_kb.py` 强制，违反即 build 失败）：`kind` 必须精确 `resource`、**绝不写 `parent_paper`**、`category` 固定 `uncat`。这样资源物理上不可能进文献库。
+
 ---
 
 ## 5. 双层笔记格式
@@ -126,7 +164,7 @@ type: note
 
 **白话解读**（`*_论文白话解读.md`）：六节速读，每节双栏（【专业描述】+【白话解释】），文末附「专业术语文白对照表」。
 
-> 这两套格式由 `paper-reader` 技能（拆解）与 `paper-importer` 流程（导入归档）生成；本仓库不含这些技能，它们属于个人 `.workbuddy/skills`，不在版本库中。
+> 这两套格式由 `paper-reader` 技能（拆解）与 `article-summarizer` harness（统一入口：先判论文/非论文，再分流导入）生成；本仓库不含这些技能，它们属于个人 `.workbuddy/skills` 与本地 Harness Hub，不在版本库中。
 
 ---
 
@@ -134,12 +172,33 @@ type: note
 
 | 操作 | 命令 |
 | --- | --- |
+| **一键部署** | `python deploy.py` |
 | 重新生成站点 | `python build.py` |
 | 本地预览 | `python server.py` → http://localhost:8766 |
-| 改完内容后刷新 | 在站点里点重建，或终端再跑一次 `python build.py` |
+| 改完内容后刷新 | 在站点里点「⟳ 刷新」，或再跑一次 `python build.py` |
 | 加一篇论文 | 往 `content/papers/` 丢一个 `<id>_论文.md` |
 | 加一条笔记 | 往 `content/notes/` 丢 `<id>_论文拆解.md`（设 `parent_paper`） |
 | 新建/调整分类 | 编辑 `categories.json`（数组：`{id, name, parent}`）|
+| **接口化导入**（agent 用） | `python ingest.py "C:/tmp/x.md@content/papers/x_论文.md"` |
+| **接口化重建** | `curl -X POST http://127.0.0.1:8766/api/build` |
+
+### 6.1 接口化落库（让 agent 不直接碰 `content/`）
+
+`content/` 目录只由服务端经接口持有——agent 生成好 markdown 后 POST 给服务端，由服务端原子写盘并自动跑双闸。这样避免多处直写导致契约被绕过。
+
+```bash
+# 1) 把生成好的 markdown 先写到任意临时目录
+# 2) 用 ingest.py 投给服务端（"本地文件@目标content路径"）
+python ingest.py \
+  "C:/tmp/x_papers.md@content/papers/x_论文.md" \
+  "C:/tmp/x_deep.md@content/notes/x_论文拆解.md" \
+  "C:/tmp/x_explain.md@content/notes/x_论文白话解读.md"
+```
+
+- 等价于 `POST /api/ingest`，body：`{"files":[{"path":"content/.../x.md","content":"<完整 md 含 frontmatter>"}],"build":true}`。
+- 返回 `{"written":[...], "build":{"ok":true,"exit":0,"log_tail":"..."}}`；`build.ok=false` 时读 `log_tail` 定位违规（缺 `一句话概括` / 缺双栏 / v2 缺白话笔记 / 指标冲突），修正后**重投同一接口**即可，已写文件不会丢。
+- 接口只允许 `content/{papers,notes,resources}/*.md`，禁目录穿越；写盘用 temp+原子替换。CORS 已开，可跨域调用。
+- 只重建不写文件：`POST /api/build`。
 
 ---
 

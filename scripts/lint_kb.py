@@ -118,6 +118,16 @@ def run():
                     for fp in PAPER_FINGERPRINTS:
                         if fp in body:
                             violations.append("[模板串流] %s : 含论文拆解指纹 %r，resources 不得用 paper-reader 模板" % (rel, fp))
+                    # 2.1) resources 必须在 frontmatter 含「一句话概括」字段（标题旁的电梯演讲，硬约束）
+                    #      —— 与论文统一：主表格/卡片紧随标题的小字由该字段驱动，与 summary(摘要) 互不影响。
+                    if not fm.get("一句话概括"):
+                        violations.append("[一句话概括缺失] %s : resources 必须在 frontmatter 含 一句话概括 字段（主表格/卡片紧随标题的小字，硬约束）" % rel)
+
+                # 2.6) 所有论文必须在 frontmatter 含「一句话概括」字段（标题旁的电梯演讲，硬约束）
+                #      —— 与旧数据（如 PULSE）统一：一行参数，主表格/卡片/详情均展示；与 summary(摘要) 互不影响。
+                if folder == "papers":
+                    if not fm.get("一句话概括"):
+                        violations.append("[一句话概括缺失] %s : papers 必须在 frontmatter 含 一句话概括 字段（标题旁的电梯演讲，硬约束）" % rel)
 
                 # 3) notes 的 parent_paper（如有）必须解析到某个 papers slug
                 #    说明：UI 直接新建的「独立笔记」允许没有 parent_paper（照样在知识库显示），
@@ -126,6 +136,11 @@ def run():
                     pp = fm.get("parent_paper") or ""
                     if pp and pp not in papers_slugs:
                         violations.append("[挂载] %s : parent_paper=%r 未匹配任何 papers slug（断裂的挂载）" % (rel, pp))
+                    # 3.1) paper_weixin_summary（公众号解读）笔记必须在 frontmatter 含「一句话概括」字段（硬约束）
+                    #      —— 与挂载的论文、旧数据统一：标题旁的电梯演讲由该字段驱动，与 summary(摘要) 互不影响。
+                    if fm.get("note_type") == "paper_weixin_summary":
+                        if not fm.get("一句话概括"):
+                            violations.append("[一句话概括缺失] %s : paper_weixin_summary 笔记必须在 frontmatter 含 一句话概括 字段（标题旁的电梯演讲，硬约束）" % rel)
 
                 # 4) notes 正文格式契约（论文路线由 article-summarizer 统一生成）
                 #    白话解读：双栏【专业描述】+【白话解释】 + note_type/pipeline_version
@@ -157,7 +172,7 @@ def main():
             print("  - " + v)
         print("\n共 %d 处违规。请修正后再 build（build 会因本闸失败而终止）。" % len(violations))
         sys.exit(1)
-    print("✅ kb-site 内容契约检查通过：papers/notes/resources 的 kind 契约、resources 隔离、防模板串流，以及 notes 正文双栏格式（白话解读【专业描述】+【白话解释】/ 论文拆解【专业描述】+【通俗解释】）均正常。")
+    print("✅ kb-site 内容契约检查通过：papers/notes/resources 的 kind 契约、resources 隔离、防模板串流、一句话概括字段（标题旁电梯演讲，papers/resources/paper_weixin_summary 笔记均强制），以及 notes 正文双栏格式（白话解读【专业描述】+【白话解释】/ 论文拆解【专业描述】+【通俗解释】）均正常。")
     sys.exit(0)
 
 

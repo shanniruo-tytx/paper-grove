@@ -122,16 +122,30 @@ content/notes/{slug}_论文白话解读.md      # kind:note, note_type: paper_ex
 
 ## 3. 使用说明
 
-### 3.1 本地部署（3 步）
+### 3.1 本地部署（一键）
 
 ```bash
 git clone https://github.com/shanniruo-tytx/paper-grove.git
 cd paper-grove
-pip install -r requirements.txt          # markdown 必装；PyYAML 可选
-cp categories.example.json categories.json
-python build.py                          # -> dist/，打印 "built N entries"
-python server.py                         # -> http://localhost:8766  (PORT 可环境变量覆盖)
+
+python deploy.py        # 装依赖 → 准备 categories.json → 构建（双闸）→ 启动 http://localhost:8766
 ```
+
+`deploy.py` 四步依次是：装依赖（失败会回退为只装必选的 `markdown`）→ `categories.json` 缺失时从示例复制 → `build.py`（内含 `lint_kb` + `gate_v2`，不过即中止、不留半成品）→ 启动 `server.py`。
+
+常用开关：`--no-deps`（跳过装依赖）、`--background`（后台常驻，打印 PID）、`--no-serve`（只构建）、`--no-build`（只启动）、`--port 9000`、`--open`。Windows 双击 `deploy.bat` 等效。
+
+<details>
+<summary>等价的分步命令</summary>
+
+```bash
+pip install -r requirements.txt
+cp categories.example.json categories.json
+python build.py
+python server.py        # -> http://localhost:8766  (PORT 可环境变量覆盖)
+```
+
+</details>
 
 ### 3.2 手动加一篇
 
@@ -193,9 +207,11 @@ agent 不是「把活扔给后台程序」，而是**亲自完成解析、亲自
 
 「自主调接口写入」里的「接口」可以是以下任一种，二者契约一致（输入都是结构化 frontmatter + Markdown 正文，输出都是落盘 + 重建）：
 
-#### 4.3.1 文件接口（默认，零依赖）
+#### 4.3.1 文件接口（零依赖，手动编辑时用）
 
-agent 直接用写文件能力把 Markdown 落到 `content/{papers,notes,resources}/`。这是当前技能 harness 的默认做法——**文件系统本身就是写入接口**，无需起服务。
+agent 直接用写文件能力把 Markdown 落到 `content/{papers,notes,resources}/`——**文件系统本身就是写入接口**，无需起服务。
+
+> 📌 **2026-09-13 起，技能 harness 的默认落库方式已切到 4.3.3 的 `/api/ingest`**：`article-summarizer` 的「步骤 5」改为「先写临时目录 → 调 `/api/ingest` → 读 `build.ok` 修正重投」。理由是让 `content/` 只由服务端经接口持有，避免多处直写绕过契约。文件接口仍保留给人工直接编辑的场景。
 
 ```text
 content/papers/cellvoyager_论文.md          # kind:paper, pipeline_version: paper-pipeline-v2
@@ -234,6 +250,44 @@ content/resources/cell_reference_mapping_weixin.md   # kind:resource, category:u
 >   -H 'Content-Type: application/json' \
 >   -d '{"kind":"resource","slug":"resources_demo","title":"demo","body":"## #0 元信息\n\n正文","meta":{"doc_type":"技术博客","tags":["x"]}}'
 > ```
+
+#### 4.3.3 HTTP 接口 `/api/ingest`（**当前推荐**：原样投递已成型的 Markdown）
+
+4.3.2 的 `/api/entry/create` 是「结构化入参 → 服务端重组 frontmatter」，对 `pipeline_version` / `note_type` / `parent_paper` 这类流水线字段是**有损**的。`/api/ingest` 改为直接接收**已含 frontmatter 的完整 Markdown**，服务端原样落盘，不重组任何字段——契约零损耗。
+
+请求体：
+
+```json
+{
+  "files": [
+    {"path": "content/papers/x_论文.md",           "content": "---\ntitle: ...\npipeline_version: paper-pipeline-v2\n---"},
+    {"path": "content/notes/x_论文拆解.md",         "content": "---\nkind: note\nnote_type: paper_analysis\n...\n---\n## #0. 原始论文识别..."},
+    {"path": "content/notes/x_论文白话解读.md",      "content": "---\nnote_type: paper_explainer\n...\n---"}
+  ],
+  "build": true
+}
+```
+
+服务端行为与安全边界：
+
+- 路径白名单：仅 `content/{papers,notes,resources}/*.md`，禁止 `..` 目录穿越与非 `.md`。
+- 写盘用 `temp` + `os.replace` **原子替换**，不会留下半个文件。
+- `build=true` 时以**子进程**跑 `build.py`（双闸），避免 build 内 `sys.exit` 崩掉服务线程。
+- 返回：`{"written":[...], "build":{"ok":true,"exit":0,"log_tail":"..."}}`。`build.ok=false` 时读 `log_tail` 定位违规，**修正后重投同一接口**即可（已写文件保留，便于迭代修正）。
+- CORS 已开（`*`），浏览器与脚本均可跨域调用。
+
+agent 侧不必手拼 JSON，用仓库自带的助手脚本：
+
+```bash
+# 先把生成的 markdown 写到任意临时目录，再按 "本地文件@目标content路径" 投递
+python ingest.py \
+  "C:/tmp/x_papers.md@content/papers/x_论文.md" \
+  "C:/tmp/x_deep.md@content/notes/x_论文拆解.md" \
+  "C:/tmp/x_explain.md@content/notes/x_论文白话解读.md"
+
+# 只想触发重建（无新文件）
+curl -X POST http://127.0.0.1:8766/api/build
+```
 
 > ⚠️ `server.py` 的写入/管理 API **不带鉴权**（与现有分类管理 API 同一信任模型，仅用于本机/内网）。若暴露到公网，务必在前面加反向代理做鉴权，且**绝不要把 LLM apikey 放进 server.py**。
 

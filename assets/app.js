@@ -234,7 +234,7 @@ function render(){
   if(view==="stats"){ main.innerHTML = renderStats(); return; }
   if(view==="export"){ main.innerHTML = renderExport(); return; }
   if(view==="ai"){ main.innerHTML = renderAI(); return; }
-  if(view==="skills"){ main.innerHTML = renderSkills(); return; }
+  if(view==="skills"){ loadSkillsPanel(); return; }
   var scope = (view==="knowledge") ? resources() : papers();
   var list = applyFilter(scope);
   list = searchList(list);
@@ -1319,39 +1319,92 @@ function copyImport(){
 }
 
 /* ---------- Skill管理 ---------- */
-function renderSkills(){
-  var skills = [
-    {name:"paper-locator", title:"论文定位与提取", desc:"从公众号文章、B站视频、论文链接、其他资料中提取论文名称并精确定位原始论文，供下一步拆解使用。", path:"kb-site/.workbuddy/skills/paper-locator/SKILL.md"},
-    {name:"paper-reader", title:"论文深度拆解", desc:"以生物医学、生物信息学与 AI4Science 研究者视角，深度拆解单篇论文。输出 #0-#9 结构，#0 严格表格形式，不写标题概述。", path:".workbuddy/skills/paper-reader/SKILL.md"},
-    {name:"article-summarizer", title:"文章总结器（统一入口）", desc:"收到文章链接/文本后先判定「论文 or 非论文」，再走对应路线：论文→paper-reader 拆解并作为 paper+note 导入；非论文→按 summary-format 总结并作为 kind:resource 独立导入「知识资料」。两路线物理隔离，build 硬闸兜底。", path:"kb-site/.workbuddy/skills/article-summarizer/SKILL.md"}
-  ];
-  var h = '<div class="panel" style="max-width:820px"><h2>Skill 管理</h2>';
-  h += '<p class="placeholder" style="text-align:left;padding:0 0 12px;color:var(--sub)">以下三个 Skill 构成文章处理流水线：<b>定位 → 拆解 → 总结导入</b>。其中「文章总结器」会先判定论文/非论文再分流。点击编辑可直接修改 SKILL.md，修改后即时生效。</p>';
-  h += '<div class="pipeline"><div class="pipe-step"><span class="pipe-num">①</span><b>定位</b><br><small>论文提取</small></div><span class="pipe-arr">→</span><div class="pipe-step"><span class="pipe-num">②</span><b>拆解</b><br><small>深度分析</small></div><span class="pipe-arr">→</span><div class="pipe-step"><span class="pipe-num">③</span><b>总结导入</b><br><small>入库平台</small></div></div>';
-  skills.forEach(function(s){
-    h += '<div class="skill-card"><div class="skill-head"><span class="skill-badge">'+esc(s.name)+'</span><strong>'+esc(s.title)+'</strong></div>';
-    h += '<div class="skill-desc">'+esc(s.desc)+'</div>';
-    h += '<div class="skill-acts"><button class="btn sm primary" onclick="openSkillEdit(\''+esc(s.name)+'\')">编辑</button>';
-    h += '<button class="btn sm ghost" onclick="downloadSkill(\''+esc(s.name)+'\')">导出</button></div></div>';
-  });
-  h += '<div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">';
-  h += '<button class="btn primary" onclick="downloadPipeline()">导出完整流水线（pipeline.md）</button>';
-  h += '<button class="btn ghost" onclick="downloadAllSkills()">导出全部 3 个 Skill（zip）</button>';
+/* ---------- Skill / Harness 管理（数据来自 Hub 4173） ---------- */
+const HUB_BASE = "http://127.0.0.1:4173";
+const HUB_HARNESS = "article-summarizer";
+
+function loadSkillsPanel(){
+  var main = document.getElementById("main");
+  main.innerHTML = '<div class="panel" style="max-width:960px"><h2>Skill / Harness 管理</h2>'
+    + '<p class="placeholder" style="text-align:left;padding:0 0 12px;color:var(--sub)">正在从统一管理中心 <b>'+HUB_BASE+'</b> 加载 Harness「'+HUB_HARNESS+'」的元信息与 Skill / Prompt…</p>'
+    + '<div class="loading">加载中…</div></div>';
+  fetchHubHarness().then(function(data){ main.innerHTML = renderHubSkills(data); })
+    .catch(function(err){ main.innerHTML = renderHubSkillsFallback(err); });
+}
+
+async function fetchHubHarness(){
+  var meta = await fetch(HUB_BASE+"/api/harnesses/"+HUB_HARNESS).then(function(r){ return r.json(); });
+  if(!meta || meta.error) throw new Error((meta&&meta.error)||"harness not found");
+  var filesRes = await fetch(HUB_BASE+"/api/harnesses/"+HUB_HARNESS+"/files").then(function(r){ return r.json(); });
+  if(!filesRes || filesRes.error) throw new Error((filesRes&&filesRes.error)||"files not found");
+  return { meta: meta, files: filesRes.files || [] };
+}
+
+function renderHubSkills(data){
+  var m = data.meta, files = data.files;
+  var mf = (m.manifest || {});
+  var h = '<div class="panel" style="max-width:960px"><h2>Skill / Harness 管理</h2>';
+  h += '<p class="placeholder" style="text-align:left;padding:0 0 12px;color:var(--sub)">本面板数据来自统一管理中心 <a href="'+HUB_BASE+'/" target="_blank" rel="noopener">'+HUB_BASE+'</a> 的 Harness「<b>'+(mf.name||m.id)+'</b>」。Skill 与 Prompt 由该 Harness 统一管理，资料库站点只做调用与查看。</p>';
+  h += '<div class="skill-card"><div class="skill-head"><span class="skill-badge">harness · '+esc(m.id)+'</span><strong>'+esc(mf.name||m.id)+'</strong> <small style="color:var(--sub)">v'+(mf.version||"?")+'</small></div>';
+  if(mf.description) h += '<div class="skill-desc">'+esc(mf.description)+'</div>';
+  if(mf.capabilities && mf.capabilities.length) h += '<div class="ctags" style="margin-top:8px">'+mf.capabilities.map(function(c){ return '<span class="chip">'+esc(c)+'</span>'; }).join('')+'</div>';
+  h += '<div class="skill-acts" style="margin-top:10px">'
+    + '<button class="btn sm primary" onclick="syncFromHub()">同步到本地（更新执行副本）</button>'
+    + '<a class="btn sm ghost" href="'+HUB_BASE+'/" target="_blank" rel="noopener">在 Hub 中管理</a>'
+    + '<button class="btn sm ghost" onclick="loadSkillsPanel()">刷新</button></div>';
   h += '</div>';
-  h += '<div style="margin-top:18px;padding:12px;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0;font-size:13px;color:#166534">';
-  h += '<b>使用方式：</b>在 WorkBuddy 对话中直接说"拆解并导入这篇论文 [链接]"即可自动完成。<br>';
-  h += '如需给其他大模型使用，点击「导出」下载 pipeline.md 作为 System Prompt 注入。';
-  h += '</div></div>';
+  h += '<div class="pipeline" style="margin-top:14px"><div class="pipe-step"><span class="pipe-num">①</span><b>定位</b><br><small>paper-locator</small></div><span class="pipe-arr">→</span><div class="pipe-step"><span class="pipe-num">②</span><b>拆解</b><br><small>paper-reader</small></div><span class="pipe-arr">→</span><div class="pipe-step"><span class="pipe-num">③</span><b>总结导入</b><br><small>article-summarizer</small></div></div>';
+  var groups = { skills: "Skill", prompts: "Prompt", specs: "Spec", rubrics: "Rubric", workflow: "Workflow" };
+  Object.keys(groups).forEach(function(kind){
+    var fs = files.filter(function(f){ return f.kind===kind; });
+    if(!fs.length) return;
+    h += '<h3 style="margin:18px 0 8px">'+groups[kind]+'（'+fs.length+'）</h3>';
+    fs.forEach(function(f){
+      var fid = "hubfile-"+btoa(unescape(encodeURIComponent(f.path))).replace(/=+$/,'');
+      h += '<div class="skill-card"><div class="skill-head"><span class="skill-badge">'+esc(f.kind)+'</span><strong>'+esc(f.name)+'</strong> <small style="color:var(--sub)">'+esc(f.path)+'</small></div>';
+      h += '<div class="skill-acts"><button class="btn sm primary" onclick="openHubFile(\''+esc(fid)+'\')">查看</button>'
+        + '<button class="btn sm ghost" onclick="downloadFile(\''+esc(f.name)+'\', HUBFILES[\''+esc(fid)+'\'])">导出</button>'
+        + '<button class="btn sm ghost" onclick="copyText(HUBFILES[\''+esc(fid)+'\'])">复制</button></div></div>';
+    });
+  });
+  h += '<div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap"><button class="btn primary" onclick="downloadPipeline()">导出完整流水线（pipeline.md）</button></div>';
+  h += '<div style="margin-top:14px;padding:12px;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0;font-size:13px;color:#166534">'
+    + '<b>使用方式：</b>在 WorkBuddy 对话中直接说"拆解并导入这篇论文 [链接]"，Agent 会加载此处登记的 Skill / Prompt 自动完成。'
+    + '修改请在 Hub（'+HUB_BASE+'）中进行，再点「同步到本地」保持本机执行副本一致。</div>';
+  h += '</div>';
+  window.HUBFILES = {};
+  files.forEach(function(f){ var fid = "hubfile-"+btoa(unescape(encodeURIComponent(f.path))).replace(/=+$/,''); window.HUBFILES[fid] = f.content; });
   return h;
 }
-async function downloadSkill(name){
-  try{
-    var r = await fetch("/api/skill/raw?name="+encodeURIComponent(name));
-    var d = await r.json();
-    if(d.error){ openInfoModal("导出失败", d.error); return; }
-    downloadFile(name+".md", d.content);
-  }catch(err){ openInfoModal("导出失败", err.message); }
+
+function renderHubSkillsFallback(err){
+  var h = '<div class="panel" style="max-width:960px"><h2>Skill / Harness 管理</h2>';
+  h += '<p class="placeholder" style="text-align:left;padding:0 0 12px;color:#b91c1c">无法连接统一管理中心（'+HUB_BASE+'）：'+esc(err&&err.message?err.message:err)+'。<br>请确认 harness-management 的 Hub 正在运行（默认 '+HUB_BASE+'/）。已回退到本地执行副本。</p>';
+  h += '<div id="localSkillsFallback"></div>';
+  h += '<div style="margin-top:14px;display:flex;gap:10px"><button class="btn primary" onclick="loadSkillsPanel()">重试连接 Hub</button></div></div>';
+  loadLocalSkillsFallback();
+  return h;
 }
+
+async function loadLocalSkillsFallback(){
+  var box = document.getElementById("localSkillsFallback"); if(!box) return;
+  var names = ["article-summarizer","paper-locator","paper-reader"];
+  var html = '<h3 style="margin:8px 0">本地执行副本（离线回退）</h3>';
+  for(var i=0;i<names.length;i++){
+    try{
+      var r = await fetch("/api/skill/raw?name="+encodeURIComponent(names[i]));
+      var d = await r.json();
+      if(d.error){ html += '<div class="skill-card"><div class="skill-desc">'+esc(names[i])+'：'+esc(d.error)+'</div></div>'; continue; }
+      var fid = "localfile-"+names[i];
+      window.HUBFILES = window.HUBFILES || {}; window.HUBFILES[fid] = d.content;
+      html += '<div class="skill-card"><div class="skill-head"><span class="skill-badge">'+esc(names[i])+'</span><strong>'+esc(names[i])+'</strong></div>'
+        + '<div class="skill-acts"><button class="btn sm primary" onclick="openHubFile(\''+esc(fid)+'\')">查看</button>'
+        + '<button class="btn sm ghost" onclick="downloadFile(\''+esc(names[i])+'.md\', HUBFILES[\''+esc(fid)+'\'])">导出</button></div></div>';
+    }catch(e){ html += '<div class="skill-card"><div class="skill-desc">加载 '+esc(names[i])+' 失败：'+esc(e.message)+'</div></div>'; }
+  }
+  box.innerHTML = html;
+}
+function copyText(t){ try{ if(navigator.clipboard) navigator.clipboard.writeText(t).catch(function(){}); }catch(_){} }
 function downloadFile(filename, content){
   var blob = new Blob([content], {type:"text/markdown;charset=utf-8"});
   var a = document.createElement("a");
@@ -1389,33 +1442,25 @@ async function downloadAllSkills(){
   for(var f in files){ h += "=== "+f+" ===\n"+files[f]+"\n\n"; }
   downloadFile("paper-skills.txt", h);
 }
-async function openSkillEdit(name){
-  try{
-    var r = await fetch("/api/skill/raw?name="+encodeURIComponent(name));
-    var d = await r.json();
-    if(d.error){ openInfoModal("加载失败", d.error); return; }
-    var modal = document.getElementById("skillModal");
-    if(!modal){ modal = document.createElement("div"); modal.id = "skillModal"; modal.className = "modal"; modal.onclick = function(ev){ if(ev.target===modal) closeSkillEdit(); }; document.body.appendChild(modal); }
-    modal.innerHTML = '<div class="modal-box" style="max-width:900px"><div class="modal-head"><span>编辑 Skill · '+esc(name)+'</span><button class="modal-x" onclick="closeSkillEdit()">×</button></div>'
-      + '<div class="modal-body"><textarea id="sk-body" class="edit-raw" spellcheck="false">'+esc(d.content)+'</textarea></div>'
-      + '<div class="modal-foot"><span id="skMsg" class="edit-msg"></span>'
-      + '<button class="btn sm ghost" onclick="closeSkillEdit()">取消</button>'
-      + '<button class="btn sm primary" onclick="saveSkill(\''+esc(name)+'\')">保存</button></div></div>';
-    modal.classList.add("show");
-  }catch(err){ openInfoModal("加载失败", err.message); }
+function openHubFile(fid){
+  var content = (window.HUBFILES && window.HUBFILES[fid]) || "";
+  var modal = document.getElementById("skillModal");
+  if(!modal){ modal = document.createElement("div"); modal.id = "skillModal"; modal.className = "modal"; modal.onclick = function(ev){ if(ev.target===modal) closeSkillEdit(); }; document.body.appendChild(modal); }
+  modal.innerHTML = '<div class="modal-box" style="max-width:900px"><div class="modal-head"><span>查看 Harness 文件（只读）</span><button class="modal-x" onclick="closeSkillEdit()">×</button></div>'
+    + '<div class="modal-body"><textarea id="sk-body" class="edit-raw" spellcheck="false" readonly>'+esc(content)+'</textarea></div>'
+    + '<div class="modal-foot"><span id="skMsg" class="edit-msg"></span>'
+    + '<button class="btn sm ghost" onclick="copyText(document.getElementById(\'sk-body\').value)">复制</button>'
+    + '<button class="btn sm primary" onclick="closeSkillEdit()">关闭</button></div></div>';
+  modal.classList.add("show");
 }
 function closeSkillEdit(){ var m=document.getElementById("skillModal"); if(m) m.classList.remove("show"); }
-async function saveSkill(name){
-  var body = document.getElementById("sk-body").value;
-  var btn = document.querySelector("#skillModal .btn.primary");
-  if(btn) btn.disabled = true;
+async function syncFromHub(){
   try{
-    var r = await fetch("/api/skill/update", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name:name, content:body})});
+    var r = await fetch("/api/hub/sync", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({harness: HUB_HARNESS})});
     var d = await r.json();
-    if(d.error){ if(btn) btn.disabled=false; var m=document.getElementById("skMsg"); if(m) m.textContent="保存失败："+d.error; return; }
-    closeSkillEdit();
-    openInfoModal("保存成功", "Skill '"+name+"' 已更新，修改即时生效。");
-  }catch(err){ if(btn) btn.disabled=false; var m=document.getElementById("skMsg"); if(m) m.textContent="保存出错："+err; }
+    if(d.error){ openInfoModal("同步失败", d.error); return; }
+    openInfoModal("同步完成", "已从 Hub 同步 "+((d.written&&d.written.length)||0)+" 个文件到本地执行副本：\n"+((d.written||[]).join("\n")));
+  }catch(err){ openInfoModal("同步失败", err.message); }
 }
 
 /* ---------- 导出回 Zotero ---------- */

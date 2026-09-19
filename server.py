@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # 本地后端：托管 dist/ 静态站点，并提供分类树持久化 API。
 # 仅用于本机运行（python server.py），不做真实 AI 调用。
-import os, re, sys, json, subprocess, urllib.parse, importlib.util, time
+import os, re, sys, json, subprocess, urllib.parse, urllib.request, importlib.util, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -179,6 +179,27 @@ def rebuild():
         sys.stderr.write("rebuild error: %s\n" % e)
         return False
 
+def run_build_subprocess(timeout=600):
+    """以子进程方式运行 build.py（lint_kb + gate_v2 硬闸）。
+
+    不用 build.main() 直接调用：build.py 在 lint/gate 失败时会 sys.exit(1)，
+    而 SystemExit 不是 Exception 的子类，会在请求线程里向上冒泡导致 500 甚至
+    服务线程异常。子进程隔离后，失败只体现在返回码，服务主进程稳健。
+    返回 (exit_code, combined_log)。"""
+    try:
+        proc = subprocess.run(
+            [sys.executable, os.path.join(ROOT, "build.py")],
+            cwd=ROOT, capture_output=True, text=True, timeout=timeout
+        )
+        log = (proc.stdout or "") + (proc.stderr or "")
+        return proc.returncode, log
+    except subprocess.TimeoutExpired as e:
+        out = getattr(e, "stdout", "") or ""
+        err = getattr(e, "stderr", "") or ""
+        return 124, (out + err + "\n[build timeout after %ds]\n" % timeout)
+    except Exception as e:
+        return 1, "build launch error: %s" % e
+
 def state_payload():
     data = json.load(open(os.path.join(DIST, "index.json"), encoding="utf-8"))
     return {"entries": data.get("entries", []), "categories": read_categories()}
@@ -251,9 +272,13 @@ class H(BaseHTTPRequestHandler):
                 pass
 
     def _dispatch(self, path, p):
+        if path == "/api/ingest":
+            return self.api_ingest(p)
+        if path == "/api/build":
+            return self.api_build(p)
         if path == "/api/rebuild":
-            ok = rebuild()
-            return self._send(200, {"ok": ok, **state_payload()})
+            code, log = run_build_subprocess()
+            return self._send(200, {"ok": code == 0, "exit": code, "log_tail": log[-2000:], **state_payload()})
         if path == "/api/category":
             return self.api_category(p)
         if path == "/api/entry/category":
@@ -274,6 +299,8 @@ class H(BaseHTTPRequestHandler):
             return self.api_entry_delete(p)
         if path == "/api/skill/update":
             return self.api_skill_update(p)
+        if path == "/api/hub/sync":
+            return self.api_hub_sync(p)
         return self._send(404, {"error": "unknown api"})
 
     def api_entry_raw(self, u):
@@ -388,6 +415,77 @@ class H(BaseHTTPRequestHandler):
         rebuild()
         return self._send(200, {"slug": slug, **state_payload()})
 
+    def api_ingest(self, p):
+        """接口化导入入口（替代 Agent 直接本地写 content/*.md + 跑 build.py）。
+
+        请求体：
+        {
+          "files": [
+            {"path": "content/papers/alphagenome_atlas_论文.md", "content": "---\ntitle: ...\n---"},
+            {"path": "content/notes/alphagenome_atlas_论文拆解.md", "content": "..."},
+            ...
+          ],
+          "build": true            # 可选，默认 true：写完后立即跑 build.py 双闸
+        }
+        - path 仅允许 content/{papers,notes,resources}/<name>.md，禁止目录穿越与非 .md
+        - content 为已成型 markdown（含 frontmatter），服务端原样落盘，不重建 frontmatter
+        - 写盘用 temp+os.replace 原子替换；写完后按 build 触发 build.py（lint+gate 硬闸）
+        - 返回写入清单 + 构建结果（exit/ok/log_tail），构建失败也不丢已写文件，便于修正重投
+        """
+        files = p.get("files")
+        if not isinstance(files, list) or not files:
+            return self._send(400, {"error": "'files' 必填且非空（数组）"})
+        allowed_prefixes = ("content/papers/", "content/notes/", "content/resources/")
+        written = []
+        for item in files:
+            if not isinstance(item, dict):
+                return self._send(400, {"error": "files 每项须为对象 {path, content}"})
+            rel = (item.get("path") or "").strip().replace("\\", "/").lstrip("/")
+            content = item.get("content") or ""
+            if not rel:
+                return self._send(400, {"error": "每项需含 path"})
+            if not rel.endswith(".md"):
+                return self._send(400, {"error": "仅允许 .md 文件：%s" % rel})
+            if not rel.startswith(allowed_prefixes):
+                return self._send(400, {"error": "非法路径（仅允许 content/{papers,notes,resources}/...）：%s" % rel})
+            # 允许子目录（如 content/resources/foo/bar.md）但必须仍落在 CONTENT 内
+            full = os.path.normpath(os.path.join(ROOT, rel))
+            content_root = os.path.normpath(CONTENT)
+            if full != content_root and not full.startswith(content_root + os.sep):
+                return self._send(400, {"error": "路径穿越被拒绝：%s" % rel})
+            try:
+                os.makedirs(os.path.dirname(full), exist_ok=True)
+                tmp = full + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as f:
+                    f.write(content)
+                os.replace(tmp, full)
+                written.append(rel)
+            except Exception as e:
+                return self._send(500, {"error": "写入 %s 失败：%s" % (rel, e)})
+        do_build = p.get("build", True)
+        build_exit = None
+        build_ok = None
+        build_log = ""
+        if do_build:
+            build_exit, build_log = run_build_subprocess()
+            build_ok = build_exit == 0
+        return self._send(200, {
+            "ok": True,
+            "written": written,
+            "build": {"exit": build_exit, "ok": build_ok, "log_tail": build_log[-2000:]},
+            **state_payload()
+        })
+
+    def api_build(self, p):
+        """仅触发重新构建（不写新文件），等价于接口化版本的 '运行 build.py'。"""
+        build_exit, build_log = run_build_subprocess()
+        return self._send(200, {
+            "ok": build_exit == 0,
+            "exit": build_exit,
+            "log_tail": build_log[-2000:],
+            **state_payload()
+        })
+
     def api_entry_delete(self, p):
         slug = (p.get("slug") or "").strip()
         if not slug:
@@ -442,6 +540,39 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, {"name": name, "ok": True})
         except Exception as e:
             return self._send(500, {"error": str(e)})
+
+    def api_hub_sync(self, p):
+        """从统一管理中心（Hub, 默认 http://127.0.0.1:4173）拉取 article-summarizer
+        Harness 的 Skill / Prompt 文件，写回本机 kb-site 的执行副本，使本地 agent
+        执行与 Hub 规范源保持一致。仅同步 kb-site 本地持有的文件，跳过用户级 paper-reader。"""
+        harness = (p.get("harness") or "article-summarizer").strip()
+        hub = (p.get("hub") or "http://127.0.0.1:4173").rstrip("/")
+        url = "%s/api/harnesses/%s/files" % (hub, urllib.parse.quote(harness))
+        try:
+            req = urllib.request.Request(url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            return self._send(502, {"error": "无法从 Hub 拉取文件：%s" % e})
+        files = payload.get("files") or []
+        mapping = {
+            "skills/article-summarizer.md": os.path.join(ROOT, ".workbuddy", "skills", "article-summarizer", "SKILL.md"),
+            "skills/paper-locator.md": os.path.join(ROOT, ".workbuddy", "skills", "paper-locator", "SKILL.md"),
+            "prompts/summary-format.md": os.path.join(ROOT, ".workbuddy", "skills", "article-summarizer", "summary-format.md"),
+        }
+        written = []
+        for f in files:
+            rel = f.get("path") or ""
+            dst = mapping.get(rel)
+            if not dst:
+                continue
+            try:
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                open(dst, "w", encoding="utf-8").write(f.get("content") or "")
+                written.append(rel)
+            except Exception as e:
+                return self._send(500, {"error": "写入 %s 失败：%s" % (rel, e)})
+        return self._send(200, {"ok": True, "written": written, "hub": hub, "harness": harness})
 
     def api_import_rdf(self, p):
         import importlib
