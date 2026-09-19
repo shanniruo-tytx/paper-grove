@@ -2,5 +2,7 @@
 *.sh  text eol=lf
 # PowerShell 脚本用 CRLF，避免 Windows PowerShell 5.1 解析问题
 *.ps1 text eol=crlf
+# 解析规则副本：保持 LF，与 Hub 规范源一致（否则每次同步都出现「假变更」）
+harness/** text eol=lf
 # 其余文本文件由 git 自动处理
 *     text=auto

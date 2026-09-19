@@ -2,7 +2,10 @@
 # -*- coding: utf-8 -*-
 """Paper Grove 一键部署。
 
-把「装依赖 → 准备分类树 → 构建（含双闸校验）→ 启动站点」串成一条命令：
+把「装依赖 → 同步解析规则 → 准备分类树 → 构建（含双闸校验）→ 启动站点」串成一条命令：
+
+其中第 2 步会把 `harness/article-summarizer/`（入库的解析规则规范副本，或 Hub 4173）
+灌到 `.workbuddy/skills/`，换机器后 agent 立刻按同一套规则解析，不会"规则丢失"。
 
     python deploy.py                 # 装依赖 + 构建 + 前台启动 http://localhost:8766
     python deploy.py --no-deps       # 跳过装依赖（已装过用它，最快）
@@ -25,7 +28,7 @@ PY = sys.executable
 
 
 def step(n, msg):
-    print("\n[%d/4] %s" % (n, msg))
+    print("\n[%d/5] %s" % (n, msg))
 
 
 def ok(msg):
@@ -87,8 +90,20 @@ def main():
     if not module_available("markdown"):
         fail("缺少必装依赖 markdown：pip install markdown>=3.3")
 
-    # ---------- 2. 分类树 ----------
-    step(2, "准备分类树 categories.json")
+    # ---------- 2. 解析规则（skill / prompt）----------
+    # .workbuddy/skills 被 .gitignore 排除，换机器后是空的；
+    # 这里从 Hub(4173) 或仓库内 harness/ 副本灌回来，保证解析规则随部署就位。
+    step(2, "同步解析规则 skill/prompt -> .workbuddy/skills")
+    try:
+        sys.path.insert(0, os.path.join(ROOT, "scripts"))
+        import sync_skills
+        sync_skills.main(["--from-hub", "--quiet"])
+        ok("解析规则就绪（Hub 不可达时自动回退仓库 harness/ 副本）")
+    except Exception as e:
+        print("      ! 解析规则同步失败（不阻断部署）：%s" % e)
+
+    # ---------- 3. 分类树 ----------
+    step(3, "准备分类树 categories.json")
     cat = os.path.join(ROOT, "categories.json")
     example = os.path.join(ROOT, "categories.example.json")
     if os.path.exists(cat):
@@ -101,9 +116,9 @@ def main():
 
     # ---------- 3. 构建（含双闸） ----------
     if args.no_build:
-        step(3, "跳过构建（--no-build）")
+        step(4, "跳过构建（--no-build）")
     else:
-        step(3, "构建静态站点（lint_kb + gate_v2 双闸）")
+        step(4, "构建静态站点（lint_kb + gate_v2 双闸）")
         p = subprocess.run([PY, os.path.join(ROOT, "build.py")],
                            cwd=ROOT, capture_output=True, text=True)
         out = (p.stdout or "") + (p.stderr or "")
@@ -117,12 +132,12 @@ def main():
 
     # ---------- 4. 启动 ----------
     if args.no_serve:
-        step(4, "跳过启动（--no-serve）")
+        step(5, "跳过启动（--no-serve）")
         print("\n部署完成：静态站点已生成在 dist/")
         print("需要预览时运行：python server.py  （或 python deploy.py --no-deps --no-build）")
         return
 
-    step(4, "启动本地站点")
+    step(5, "启动本地站点")
     url = "http://localhost:%s" % args.port
     env = dict(os.environ)
     env["PORT"] = str(args.port)

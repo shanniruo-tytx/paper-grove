@@ -83,6 +83,16 @@ powershell -File scripts/bootstrap.ps1 -Bundle D:\backup\paper-grove-content-202
 # 或已部署完再补：python scripts/bundle.py import <zip>
 ```
 
+**解析规则（skill / prompt）不会丢**：`harness/article-summarizer/` 是**入库**的规范副本（skills：`article-summarizer` / `paper-locator` / `paper-reader`；prompts：`summary-format`），而真正被 agent 读取的 `.workbuddy/skills/` 被 `.gitignore` 排除。`deploy.py` 第 2 步会自动把前者灌到后者，所以新机器部署完即刻按同一套规则解析。
+
+```bash
+python scripts/sync_skills.py            # 仓库副本 -> 执行副本（离线可用）
+python scripts/sync_skills.py --from-hub # 优先从 Hub(4173) 拉，不可达则回退
+python scripts/sync_skills.py --to-repo  # 反向：本地改完写回仓库，便于提交
+```
+
+> 规则改动的唯一规范源仍是 Hub（4173）。在 Hub 改完 → `--from-hub` 拉到执行副本 → 需要沉淀进仓库时再 `--to-repo` 并提交。
+
 <details>
 <summary>手动分步（等价上面那条命令，仅在你不想用脚本时）</summary>
 
@@ -114,6 +124,8 @@ paper-grove/
 ├── scripts/bootstrap.ps1 # 【换机器】Windows 一键引导：装 Python/Git → clone → 部署
 ├── scripts/bootstrap.sh  # 【换机器】macOS/Linux 一键引导
 ├── scripts/bundle.py     # 内容包 export/import：把文献搬到新机器
+├── scripts/sync_skills.py # 解析规则同步：harness/（或 Hub）-> .workbuddy/skills
+├── harness/              # 【入库】解析规则规范副本（article-summarizer 的 skill/prompt）
 ├── paper_pipeline/       # 管线模块（解析、frontmatter 校验、归档等）
 ├── import_rdf.py         # 从 Zotero 导出的 .rdf 批量导入
 ├── import_zotero.py      # Zotero 导入辅助

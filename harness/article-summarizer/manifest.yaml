@@ -1,0 +1,52 @@
+schemaVersion: 1
+id: article-summarizer
+name: 文章总结器（Article Summarizer）
+version: 1.0.0
+category: knowledge
+description: >-
+  统一的「文章总结」Harness：收到任意文章链接/文本后，先判定路线（PAPER / RESOURCE / AMBIGUOUS）
+  再总结。PAPER 路线：原始论文（含公众号/B站/视频中明确讲解且能定位原文的具体论文）→
+  paper-locator 定位 → paper-reader 拆解 → 作为 paper+note 导入文献库。
+  RESOURCE 路线：非论文材料（定位不到原文的公众号解读、综述/论坛帖/官方文档/工具或产品介绍/访谈/新闻、
+  以及批判/观点/争议类文章）→ 按 summary-format.md 总结 → 作为 kind:resource 独立导入「知识资料」
+  （只在知识库显示）。两路线严格隔离，物理上互不串流，由 kb-site 的 scripts/lint_kb.py 硬闸兜底。
+  本 Harness 由 WorkBuddy Agent 编排执行（加载 skills/ 下的技能与 prompts/ 下的总结格式），
+  不通过 Hub 的 process 运行时直接 spawn。
+capabilities:
+  - paper-location
+  - paper-dissection
+  - article-routing
+  - resource-summary
+  - knowledge-import
+  - content-classification
+  - prompt-skill-harness
+targets:
+  - knowledge
+integrations:
+  - harness-hub
+dependencies:
+  - id: paper-locator
+    type: skill
+  - id: paper-reader
+    type: skill
+  - id: summary-format
+    type: prompt
+runtime:
+  type: http
+  endpoint: agent-driven
+  note: >-
+    执行由 WorkBuddy Agent 加载本 Harness 的 skills/ 与 prompts/ 完成；
+    Hub 仅作注册、目录与 Skill/Prompt 的统一管理，不直接 spawn 进程。
+actions:
+  - id: summarize
+    description: 主入口：判定路线后总结并导入（论文→paper+note；非论文→独立 resource 资料）
+    args: []
+    output: application/json
+  - id: locate
+    description: 从公众号文章、B站视频、论文链接、其他资料中定位原始论文，返回结构化元数据
+    args: []
+    output: application/json
+  - id: dissect
+    description: 调用 paper-reader 对原始论文做 #0–#9 双栏深度拆解
+    args: []
+    output: application/json

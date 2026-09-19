@@ -17,6 +17,7 @@
     content/papers/*.md
     content/notes/*.md
     content/resources/*.md
+    .workbuddy/skills/**/*.md   解析规则执行副本（仓库 harness/ 里另有一份规范副本，可 git 迁移）
     categories.json（若存在，方便连分类树一起搬）
 """
 import os
@@ -52,6 +53,17 @@ def cmd_export(args):
                 full = os.path.join(d, fn)
                 z.write(full, "content/%s/%s" % (sub, fn))
                 n += 1
+        # 解析规则（执行副本）：换机器后靠它立刻恢复同一套解析标准
+        sk_root = os.path.join(ROOT, ".workbuddy", "skills")
+        if os.path.isdir(sk_root):
+            for dirpath, _dirs, files in os.walk(sk_root):
+                for fn in sorted(files):
+                    if not fn.endswith(".md"):
+                        continue
+                    full = os.path.join(dirpath, fn)
+                    rel = os.path.relpath(full, ROOT).replace("\\", "/")
+                    z.write(full, rel)
+                    n += 1
         cat = os.path.join(ROOT, "categories.json")
         if os.path.exists(cat):
             z.write(cat, "categories.json")
@@ -80,7 +92,8 @@ def cmd_import(args):
             if norm.startswith("../") or "/../" in norm:
                 print("跳过非法路径：%s" % name, file=sys.stderr)
                 continue
-            if not (norm.startswith("content/") or norm == "categories.json"):
+            if not (norm.startswith("content/") or norm == "categories.json"
+                    or norm.startswith(".workbuddy/skills/")):
                 print("跳过非内容文件：%s" % name, file=sys.stderr)
                 continue
             target = os.path.join(root, norm)
