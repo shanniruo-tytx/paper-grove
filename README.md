@@ -42,6 +42,47 @@ python deploy.py          # 装依赖 → 构建（双闸校验）→ 启动 htt
 
 Windows 双击 `deploy.bat` 等同 `python deploy.py`。
 
+### 2.1 换一台新电脑（一条命令）
+
+新机器上**不需要先装 Python / Git / 克隆仓库**，`scripts/bootstrap.*` 会自己搞定（缺 Python 走 winget / apt / brew 装，缺 Git 同理），然后 clone 并调用 `deploy.py`。
+
+**Windows（PowerShell，一行）**
+
+```powershell
+irm https://raw.githubusercontent.com/shanniruo-tytx/paper-grove/main/scripts/bootstrap.ps1 | iex
+```
+
+**macOS / Linux（一行）**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/shanniruo-tytx/paper-grove/main/scripts/bootstrap.sh | bash
+```
+
+常用参数：
+
+| 参数 | 作用 |
+| --- | --- |
+| `-Dir D:\kb` / `--dir ~/kb` | 装到指定目录（默认 `~/paper-grove`） |
+| `-Bundle <zip 或 URL>` / `--bundle ...` | **连文献一起搬**（见下） |
+| `-Port 9000` / `--port 9000` | 换端口 |
+| `-Background` / `--background` | 部署后后台常驻 |
+| `-Python <路径>` / `--python <路径>` | 已装 Python 但不在 PATH 时显式指定 |
+| `-NoServe` / `--no-serve` | 只构建不启动 |
+
+> 无参数直接跑也能用，只是站点是**空的**——因为 `content/**` 与 `categories.json` 属于个人数据，被 `.gitignore` 排除，仓库里只有程序壳。
+
+**把文献一起带过去**：先在旧机器打包，再在新机器导入。
+
+```bash
+# 旧机器：导出内容包（content/*.md + categories.json，约 1.8 MB）
+python scripts/bundle.py export
+# → _bundle/paper-grove-content-<时间戳>.zip
+
+# 新机器：引导时一步到位
+powershell -File scripts/bootstrap.ps1 -Bundle D:\backup\paper-grove-content-20260919.zip
+# 或已部署完再补：python scripts/bundle.py import <zip>
+```
+
 <details>
 <summary>手动分步（等价上面那条命令，仅在你不想用脚本时）</summary>
 
@@ -70,6 +111,9 @@ paper-grove/
 ├── ingest.py             # 接口化导入助手：本地 md -> POST /api/ingest -> 落库+构建
 ├── gate_v2.py            # 第 2 闸：v2 论文挂载完整性 + 拆解↔白话 指标一致性
 ├── scripts/lint_kb.py    # 第 1 闸：kind 契约 / 资源隔离 / 防模板串流 / 双栏格式
+├── scripts/bootstrap.ps1 # 【换机器】Windows 一键引导：装 Python/Git → clone → 部署
+├── scripts/bootstrap.sh  # 【换机器】macOS/Linux 一键引导
+├── scripts/bundle.py     # 内容包 export/import：把文献搬到新机器
 ├── paper_pipeline/       # 管线模块（解析、frontmatter 校验、归档等）
 ├── import_rdf.py         # 从 Zotero 导出的 .rdf 批量导入
 ├── import_zotero.py      # Zotero 导入辅助

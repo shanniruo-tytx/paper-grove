@@ -1,0 +1,6 @@
+# 保证 shell 脚本在任何平台 checkout 都是 LF（否则 Linux/macOS 会报 bad interpreter）
+*.sh  text eol=lf
+# PowerShell 脚本用 CRLF，避免 Windows PowerShell 5.1 解析问题
+*.ps1 text eol=crlf
+# 其余文本文件由 git 自动处理
+*     text=auto

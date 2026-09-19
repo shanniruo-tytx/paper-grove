@@ -135,6 +135,22 @@ python deploy.py        # 装依赖 → 准备 categories.json → 构建（双�
 
 常用开关：`--no-deps`（跳过装依赖）、`--background`（后台常驻，打印 PID）、`--no-serve`（只构建）、`--no-build`（只启动）、`--port 9000`、`--open`。Windows 双击 `deploy.bat` 等效。
 
+#### 3.1.1 换机器部署（`scripts/bootstrap.*`）
+
+新机器上不必预装 Python / Git，引导脚本会自己装（winget / apt / brew），然后 clone 并转交 `deploy.py`：
+
+```powershell
+# Windows
+irm https://raw.githubusercontent.com/shanniruo-tytx/paper-grove/main/scripts/bootstrap.ps1 | iex
+```
+
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/shanniruo-tytx/paper-grove/main/scripts/bootstrap.sh | bash
+```
+
+因为 `content/**` 与 `categories.json` 不入库，裸跑得到的是空站；要连文献一起迁移用内容包：旧机器 `python scripts/bundle.py export` 产出 zip，新机器 `-Bundle <zip>`（或事后 `python scripts/bundle.py import <zip>`）。
+
 <details>
 <summary>等价的分步命令</summary>
 
